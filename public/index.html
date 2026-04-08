@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UsureroSystem - Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        sidebar: '#1E1E2D',
+                        sidebarhover: '#1B1B28',
+                        background: '#EEF0F8',
+                        primary: '#FF6C40',    // Naranja como en el mockup
+                        primarylight: '#FF8A66',
+                        secondary: '#4A5568',
+                        danger: '#F64E60',
+                        success: '#1BC5BD',
+                        warning: '#FFA800',
+                        info: '#3699FF'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'Segoe UI', 'Roboto', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .hidden-view {
+            display: none !important;
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Nav active states */
+        .nav-item-active {
+            background-color: rgba(255, 108, 64, 0.1);
+            color: #FF6C40;
+            border-right: 3px solid #FF6C40;
+        }
+
+        .bottom-nav-active {
+            color: #FF6C40;
+            border-top: 2px solid #FF6C40;
+        }
+
+        /* Fullcalendar adjustments */
+        .fc {
+            background: white;
+            border-radius: 1rem;
+            padding: 0.5rem;
+            border: none !important;
+        }
+
+        .fc-theme-standard .fc-scrollgrid {
+            border: none !important;
+        }
+
+        .fc-theme-standard td,
+        .fc-theme-standard th {
+            border: 1px solid #f1f5f9 !important;
+        }
+
+        .fc-col-header-cell-cushion {
+            color: #94a3b8;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding-top: 12px;
+            padding-bottom: 12px;
+            text-decoration: none !important;
+        }
+
+        .fc-daygrid-day-number {
+            color: #64748b;
+            font-weight: 400;
+            font-size: 0.85rem;
+            text-decoration: none !important;
+            padding: 8px !important;
+        }
+
+        .fc-day-today {
+            background-color: #f8fafc !important;
+        }
+
+        .fc-day-today .fc-daygrid-day-number {
+            color: #FF6C40;
+            font-weight: 700;
+        }
+
+        .fc-event {
+            cursor: pointer;
+            border: none !important;
+            padding: 4px 8px !important;
+            border-radius: 6px !important;
+            font-size: 0.75rem !important;
+            font-weight: 500 !important;
+            margin: 2px 4px !important;
+            box-shadow: none !important;
+            transition: transform 0.1s ease;
+        }
+
+        .fc-event:hover {
+            transform: translateY(-1px);
+            filter: brightness(0.95);
+        }
+
+        .fc-event-title {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .fc-toolbar-title {
+            font-size: 1.25rem !important;
+            font-weight: 700 !important;
+            color: #1e293b;
+        }
+
+        .fc-button {
+            text-transform: capitalize !important;
+            font-weight: 600 !important;
+            font-size: 0.85rem !important;
+            padding: 0.5rem 1rem !important;
+            border-radius: 0.5rem !important;
+        }
+
+        .fc-button-primary {
+            background-color: #f1f5f9 !important;
+            border: none !important;
+            color: #475569 !important;
+        }
+
+        .fc-button-primary:hover {
+            background-color: #e2e8f0 !important;
+            color: #1e293b !important;
+        }
+
+        .fc-button-active {
+            background-color: #1e293b !important;
+            color: white !important;
+        }
+
+        .fc-header-toolbar {
+            margin-bottom: 1.5rem !important;
+            padding: 0.5rem;
+        }
+    </style>
+</head>
+
+<body class="bg-background text-gray-800 h-screen overflow-hidden flex">
+
+    <!-- Sidebar (Desktop) -->
+    <aside class="w-64 bg-sidebar text-gray-400 flex-col hidden md:flex h-full shadow-xl z-20">
+        <div class="h-20 flex items-center px-8 border-b border-gray-800">
+            <!-- Icon/Logo Placeholder -->
+            <div class="w-8 h-8 rounded bg-primary text-white flex items-center justify-center font-bold text-xl mr-3">U
+            </div>
+            <h1 class="text-xl font-bold text-white tracking-wide">Deudores</h1>
+        </div>
+
+        <div class="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Menu</div>
+        <nav class="flex-1">
+            <button onclick="switchView('dashboard', this)"
+                class="nav-btn w-full flex items-center px-8 py-3 hover:bg-sidebarhover hover:text-white transition-colors nav-item-active">
+                <span class="mr-3">📊</span> Dashboard
+            </button>
+            <button onclick="switchView('clientes', this)"
+                class="nav-btn w-full flex items-center px-8 py-3 hover:bg-sidebarhover hover:text-white transition-colors">
+                <span class="mr-3">👥</span> Clientes
+            </button>
+            <button onclick="switchView('prestamos', this)"
+                class="nav-btn w-full flex items-center px-8 py-3 hover:bg-sidebarhover hover:text-white transition-colors">
+                <span class="mr-3">💰</span> Préstamos
+            </button>
+            <button onclick="switchView('calendario', this)"
+                class="nav-btn w-full flex items-center px-8 py-3 hover:bg-sidebarhover hover:text-white transition-colors">
+                <span class="mr-3">📅</span> Pagos
+            </button>
+            <div class="px-6 py-4 mt-6 text-xs font-semibold uppercase tracking-wider text-gray-500">Herramientas</div>
+            <button onclick="exportData('clientes')"
+                class="w-full flex items-center px-8 py-2 text-sm text-gray-400 hover:text-white transition-colors">
+                <span class="mr-3">📥</span> Exportar Clientes
+            </button>
+            <button onclick="exportData('prestamos')"
+                class="w-full flex items-center px-8 py-2 text-sm text-gray-400 hover:text-white transition-colors">
+                <span class="mr-3">📤</span> Exportar Préstamos
+            </button>
+        </nav>
+
+        <div class="p-6">
+            <div class="bg-gray-800 rounded-lg p-4 text-center">
+                <p class="text-xs mb-2">Recalcular Estados</p>
+                <button onclick="updateStatusCron()"
+                    class="bg-gray-700 hover:bg-primary text-white text-xs px-4 py-2 rounded transition-colors w-full">
+                    ↻ Actualizar
+                </button>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content Wrapper -->
+    <div class="flex-1 flex flex-col h-full relative overflow-hidden">
+
+        <!-- Header -->
+        <header class="h-20 bg-white flex items-center justify-between px-6 lg:px-10 shadow-sm z-10 w-full">
+            <div class="flex items-center">
+                <!-- Mobile title -->
+                <div class="md:hidden flex items-center font-bold text-xl text-gray-800 mr-4">
+                    <span class="text-primary mr-1">U</span>System
+                </div>
+                <!-- Search bar styling based on mockup -->
+                <div class="hidden sm:flex items-center bg-gray-100 rounded-full px-4 py-2 w-64 lg:w-96">
+                    <span class="text-gray-400 mr-2">🔍</span>
+                    <input type="text" placeholder="Buscar..."
+                        class="bg-transparent border-none outline-none text-sm w-full">
+                </div>
+            </div>
+
+            <div class="flex items-center gap-4">
+                <div class="text-right hidden sm:block">
+                    <div class="text-sm font-semibold text-gray-800">Administrador</div>
+                    <div class="text-xs text-gray-500">Usurero System</div>
+                </div>
+                <div
+                    class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center font-bold shadow-md">
+                    A
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Scrollable Area -->
+        <main class="flex-1 overflow-x-hidden overflow-y-auto p-4 lg:p-8 pb-24 md:pb-8" id="main-content">
+
+            <!-- VISTA: DASHBOARD -->
+            <section id="view-dashboard" class="view-section h-full flex flex-col gap-6">
+                <!-- Status Cards -->
+
+
+                <!-- Middle Section: Chart & active balance -->
+                <div class="flex flex-col lg:flex-row gap-6">
+                    <div class="lg:w-2/3 bg-white p-6 rounded-xl shadow-sm border border-gray-100 relative">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="font-bold text-gray-800">Resumen de Movimientos</h3>
+                            <select
+                                class="bg-gray-50 border border-gray-200 text-sm rounded px-2 py-1 text-gray-600 outline-none">
+                                <option>Este Mes</option>
+                            </select>
+                        </div>
+                        <div class="w-full h-64">
+                            <canvas id="mainChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="lg:w-1/3 flex flex-col gap-6">
+                        <!-- Balance Card (similar to mockup) -->
+                        <div class="bg-gradient-to-br from-primary to-primarylight p-6 rounded-xl shadow-md text-white">
+                            <h3 class="text-sm font-medium opacity-90 mb-1">Caja del Día Esperada</h3>
+                            <h2 class="text-3xl font-bold mb-6 tracking-tight" id="dash-hoy-esperado">₲ 0</h2>
+
+                            <div class="space-y-3 text-sm">
+                                <div class="flex justify-between">
+                                    <span class="opacity-80">Cuotas Hoy</span>
+                                    <span class="font-semibold" id="dash-hoy-count">0</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="opacity-80">Pendientes</span>
+                                    <span class="font-semibold" id="dash-pend-count">0</span>
+                                </div>
+                                <div class="flex justify-between border-t border-white/20 pt-2 mt-2">
+                                    <span class="opacity-80">Morosos Activos</span>
+                                    <span class="font-bold text-red-200" id="dash-venc-count">0</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Top Morosos List -->
+                        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex-1">
+                            <h3 class="font-bold text-gray-800 mb-4 text-sm uppercase tracking-wide">Próximos Pagos</h3>
+                            <ul id="list-upcoming" class="space-y-4">
+                                <li class="text-sm text-gray-400">Cargando...</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VISTA: CLIENTES -->
+            <section id="view-clientes" class="view-section hidden-view">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800">Gestión de Clientes</h2>
+                    <button onclick="openClientModal()"
+                        class="bg-primary hover:bg-orange-600 text-white px-4 py-2 text-sm font-medium rounded-lg shadow-sm transition-colors">+
+                        Nuevo Cliente</button>
+                </div>
+
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="p-4 border-b border-gray-100">
+                        <input type="text" id="search-client" placeholder="Buscar cliente por nombre..."
+                            class="w-full sm:w-1/2 bg-gray-50 text-gray-800 rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-primary/50 border border-gray-200"
+                            onkeyup="renderClientsList()">
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm whitespace-nowrap">
+                            <thead class="bg-gray-50 text-gray-600 font-medium border-b border-gray-100">
+                                <tr>
+                                    <th class="px-6 py-4">Cliente</th>
+                                    <th class="px-6 py-4">Contacto</th>
+                                    <th class="px-6 py-4">Riesgo</th>
+                                    <th class="px-6 py-4">Notas</th>
+                                    <th class="px-6 py-4 text-center">Estado</th>
+                                    <th class="px-6 py-4 text-center">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="clients-list" class="divide-y divide-gray-100">
+                                <!-- Clients loaded here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VISTA: PRESTAMOS -->
+            <section id="view-prestamos" class="view-section hidden-view">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800">Préstamos Activos</h2>
+                    <button onclick="openModal('modal-prestamo')"
+                        class="bg-primary hover:bg-orange-600 text-white px-4 py-2 text-sm font-medium rounded-lg shadow-sm transition-colors">+
+                        Nuevo Préstamo</button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6" id="loans-list">
+                    <!-- Loans cards loaded here -->
+                </div>
+            </section>
+
+            <!-- VISTA: CALENDARIO -->
+            <section id="view-calendario" class="view-section hidden-view">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold text-gray-800">Calendario de Pagos</h2>
+                    <div class="flex items-center gap-4 text-xs font-semibold">
+                        <span class="flex items-center gap-2 px-3 py-1.5 bg-[#1BC5BD]/10 text-[#1BC5BD] rounded-full border border-[#1BC5BD]/20">
+                            <div class="w-1.5 h-1.5 rounded-full bg-[#1BC5BD]"></div> Pagado
+                        </span>
+                        <span class="flex items-center gap-2 px-3 py-1.5 bg-[#F64E60]/10 text-[#F64E60] rounded-full border border-[#F64E60]/20">
+                            <div class="w-1.5 h-1.5 rounded-full bg-[#F64E60]"></div> Pendiente
+                        </span>
+                    </div>
+                </div>
+
+                <div id="calendar-filter-info"
+                    class="hidden bg-primary/10 border border-primary/20 p-3 rounded-lg mb-4 flex justify-between items-center">
+                    <span class="text-sm font-medium text-primary">
+                        Filtrado por Préstamo <span id="filtered-loan-id" class="font-bold">#0</span>
+                        (<span id="filtered-client-name">Cliente</span>)
+                    </span>
+                    <button onclick="clearLoanFilter()"
+                        class="text-xs bg-white text-primary px-3 py-1 rounded shadow-sm hover:bg-gray-50 border border-primary/20 font-bold">Quitar
+                        Filtro</button>
+                </div>
+
+                <div id="calendar"
+                    class="bg-white rounded-xl shadow-sm border border-gray-100 p-2 min-h-[500px]"></div>
+
+                <!-- Nueva Sección: Tabla Detallada (Excel-like) -->
+                <div class="mt-8 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                        <h3 class="font-bold text-gray-800 text-sm uppercase tracking-wider">Planilla Detallada de Cobros</h3>
+                        <div class="flex gap-2">
+                             <select id="table-month" class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-primary" onchange="renderPaymentsTable()">
+                                <option value="0">Enero</option>
+                                <option value="1">Febrero</option>
+                                <option value="2">Marzo</option>
+                                <option value="3">Abril</option>
+                                <option value="4">Mayo</option>
+                                <option value="5">Junio</option>
+                                <option value="6">Julio</option>
+                                <option value="7">Agosto</option>
+                                <option value="8">Septiembre</option>
+                                <option value="9">Octubre</option>
+                                <option value="10">Noviembre</option>
+                                <option value="11">Diciembre</option>
+                             </select>
+                             <select id="table-year" class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-primary" onchange="renderPaymentsTable()">
+                                <option value="2024">2024</option>
+                                <option value="2025">2025</option>
+                                <option value="2026">2026</option>
+                                <option value="2027">2027</option>
+                             </select>
+                             <input type="text" id="search-payments" placeholder="Filtrar por cliente..." 
+                                class="text-xs border border-gray-200 rounded-lg px-3 py-1.5 outline-none focus:ring-1 focus:ring-primary w-40"
+                                onkeyup="renderPaymentsTable()">
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm whitespace-nowrap">
+                            <thead class="bg-gray-50 text-gray-600 font-semibold border-b border-gray-100">
+                                <tr>
+                                    <th class="px-6 py-3">Cliente</th>
+                                    <th class="px-6 py-3">Monto Préstamo</th>
+                                    <th class="px-6 py-3">Monto Cuota</th>
+                                    <th class="px-6 py-3">Vencimiento</th>
+                                    <th class="px-6 py-3">Estado</th>
+                                    <th class="px-6 py-3 text-center">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody id="payments-table-body" class="divide-y divide-gray-50">
+                                <!-- Data populated from app.js -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Bottom Navigation (Mobile Only) -->
+    <nav
+        class="md:hidden fixed bottom-0 w-full bg-white border-t border-gray-200 flex justify-around text-xs text-gray-500 z-30 pb-safe shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
+        <button onclick="switchView('dashboard', this)"
+            class="nav-btn bottom-btn flex flex-col items-center flex-1 py-3 bottom-nav-active">
+            <span class="text-xl mb-1">📊</span> Inicio
+        </button>
+        <button onclick="switchView('clientes', this)"
+            class="nav-btn bottom-btn flex flex-col items-center flex-1 py-3">
+            <span class="text-xl mb-1">👥</span> Clientes
+        </button>
+        <button onclick="switchView('prestamos', this)"
+            class="nav-btn bottom-btn flex flex-col items-center flex-1 py-3">
+            <span class="text-xl mb-1">💰</span> Préstamos
+        </button>
+        <button onclick="switchView('calendario', this)"
+            class="nav-btn bottom-btn flex flex-col items-center flex-1 py-3">
+            <span class="text-xl mb-1">📅</span> Pagos
+        </button>
+    </nav>
+
+    <!-- MODALS -->
+
+    <!-- Overlay compartido -->
+    <!-- Modal Expediente -->
+    <div id="modal-expediente" class="fixed inset-0 hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-4xl rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="bg-gray-800 px-6 py-4 text-white flex justify-between items-center shrink-0">
+                <div>
+                    <h3 class="text-xl font-bold" id="exp-client-name">Expediente del Cliente</h3>
+                    <p class="text-xs text-gray-400" id="exp-client-id">ID: ...</p>
+                </div>
+                <button onclick="closeModal('modal-expediente')" class="text-white/60 hover:text-white text-2xl">&times;</button>
+            </div>
+            <div class="p-6 overflow-y-auto grow">
+                <div id="exp-summary" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                    <!-- Summary cards for expediente -->
+                </div>
+                
+                <h4 class="font-bold text-gray-800 mb-4 border-b pb-2">Historial de Préstamos</h4>
+                <div id="exp-loans-container" class="space-y-6">
+                    <!-- Loan history segments -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-overlay" class="fixed inset-0 bg-gray-900/40 backdrop-blur-sm hidden z-40 transition-opacity"></div>
+
+    <!-- Modal Cliente -->
+    <div id="modal-cliente" class="fixed inset-0 hidden z-50 flex items-center justify-center p-4 pointer-events-none">
+        <div
+            class="pointer-events-auto bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden transform scale-95 transition-transform">
+            <div class="bg-gray-50 px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                <h3 id="modal-cliente-title" class="text-lg font-bold text-gray-800">Agregar Cliente</h3>
+                <button onclick="closeModal('modal-cliente')"
+                    class="text-gray-400 hover:text-gray-600 text-xl font-bold">&times;</button>
+            </div>
+            <form id="form-cliente" onsubmit="submitForm(event, 'cliente')" class="p-6">
+                <input type="hidden" name="id" id="client-id-hidden">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Nombre Completo</label>
+                        <input type="text" name="name" id="client-name" required
+                            class="w-full bg-gray-50 p-2.5 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-primary/50 text-gray-800">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Teléfono</label>
+                        <input type="tel" name="phone" id="client-phone"
+                            class="w-full bg-gray-50 p-2.5 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-primary/50 text-gray-800">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Dirección</label>
+                        <input type="text" name="address"
+                            class="w-full bg-gray-50 p-2.5 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-primary/50 text-gray-800">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Notas /
+                            Referencias</label>
+                        <textarea name="notes"
+                            class="w-full bg-gray-50 p-2.5 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-primary/50 text-gray-800"
+                            rows="2"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Foto (URL)</label>
+                        <input type="text" name="photo" placeholder="https://..."
+                            class="w-full bg-gray-50 p-2.5 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-primary/50 text-gray-800">
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 mt-8">
+                    <button type="button" onclick="closeModal('modal-cliente')"
+                        class="px-5 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">Cancelar</button>
+                    <button type="submit"
+                        class="px-5 py-2.5 bg-primary hover:bg-orange-600 shadow-md shadow-primary/20 text-white rounded-lg font-medium transition-colors">Guardar
+                        Empleado</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Prestamo -->
+    <div id="modal-prestamo" class="fixed inset-0 hidden z-50 flex items-center justify-center p-4 pointer-events-none">
+        <div
+            class="pointer-events-auto bg-white w-full max-w-lg rounded-2xl shadow-xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div class="bg-gray-50 px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                <h3 class="text-lg font-bold text-gray-800">Nuevo Préstamo</h3>
+                <button onclick="closeModal('modal-prestamo')"
+                    class="text-gray-400 hover:text-gray-600 text-xl font-bold">&times;</button>
+            </div>
+            <div class="overflow-y-auto w-full">
+                <form id="form-prestamo" onsubmit="submitForm(event, 'prestamo')" class="p-6">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Cliente</label>
+                            <div class="flex gap-2">
+                                <select id="select-client" name="client_id" required
+                                    class="flex-1 bg-gray-50 p-2.5 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-primary/50 text-gray-800"></select>
+                                <button type="button" onclick="openModal('modal-cliente')"
+                                    class="bg-primary/10 text-primary w-10 h-10 rounded-lg flex items-center justify-center font-bold text-xl hover:bg-primary/20 transition-colors shadow-sm">+</button>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Monto Capital
+                                (₲)</label>
+                            <input type="text" name="principal" required
+                                class="w-full bg-gray-50 p-2.5 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-primary/50 text-gray-800 font-bold text-lg text-primary">
+                        </div>
+                        <div class="flex gap-4">
+                            <div class="flex-1">
+                                <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Tasa Interés
+                                    (%)</label>
+                                <input type="number" step="0.1" name="interest_rate" value="10" required
+                                    class="w-full bg-gray-50 p-2.5 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-primary/50 text-gray-800">
+                            </div>
+                            <div class="flex-1">
+                                <label
+                                    class="block text-xs font-semibold text-gray-600 uppercase mb-1">Frecuencia</label>
+                                <select name="frequency" required
+                                    class="w-full bg-gray-50 p-2.5 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-primary/50 text-gray-800">
+                                    <option value="SEMANAL">Semanal</option>
+                                    <option value="QUINCENAL">Quincenal</option>
+                                    <option value="MENSUAL" selected>Mensual</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex gap-4">
+                            <div class="flex-1">
+                                <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Nº de
+                                    Cuotas</label>
+                                <input type="number" name="installments_count" min="1" required
+                                    class="w-full bg-gray-50 p-2.5 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-primary/50 text-gray-800">
+                            </div>
+                            <div class="flex-1">
+                                <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Fecha
+                                    Inicio</label>
+                                <input type="date" id="start-date-input" name="start_date" required
+                                    class="w-full bg-gray-50 p-2.5 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-primary/50 text-gray-800 text-sm font-medium">
+                            </div>
+                        </div>
+
+                        <!-- Resumen del cálculo -->
+                        <div class="grid grid-cols-2 gap-4 p-4 bg-orange-50 rounded-xl border border-orange-100">
+                            <div>
+                                <p class="text-[10px] font-bold text-orange-800 uppercase mb-1">Monto por Cuota</p>
+                                <p class="text-lg font-black text-primary" id="calc-installment">₲ 0</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] font-bold text-orange-800 uppercase mb-1">Total a Pagar</p>
+                                <p class="text-lg font-black text-gray-800" id="calc-total">₲ 0</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex justify-end gap-3 mt-8">
+                        <button type="button" onclick="closeModal('modal-prestamo')"
+                            class="px-5 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">Cancelar</button>
+                        <button type="submit"
+                            class="px-5 py-2.5 bg-primary hover:bg-orange-600 shadow-md shadow-primary/20 text-white rounded-lg font-medium transition-colors">Registrar
+                            Préstamo</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Pago -->
+    <div id="modal-pago" class="fixed inset-0 hidden z-50 flex items-center justify-center p-4 pointer-events-none">
+        <div class="pointer-events-auto bg-white w-full max-w-sm rounded-2xl shadow-xl overflow-hidden">
+            <div class="bg-gray-50 px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                <h3 class="text-lg font-bold text-gray-800">Registrar Pago</h3>
+                <button onclick="closeModal('modal-pago')"
+                    class="text-gray-400 hover:text-gray-600 text-xl font-bold">&times;</button>
+            </div>
+            <div class="p-6">
+                <p class="text-sm font-medium text-gray-500 mb-4 bg-gray-50 p-3 rounded-lg border border-gray-200 text-center"
+                    id="pago-desc">Detalle Cliente</p>
+                <form id="form-pago" onsubmit="submitForm(event, 'pago')">
+                    <input type="hidden" name="loan_id" id="pago-loan-id">
+                    <input type="hidden" name="installment_id" id="pago-inst-id">
+                    <div class="mb-4 text-center">
+                        <p class="text-[10px] font-bold text-gray-400 uppercase">Monto Total Pendiente</p>
+                        <p class="text-xl font-black text-gray-800" id="pago-total-deuda">₲ 0</p>
+                    </div>
+
+                    <!-- Desglose de saldo -->
+                    <div id="pago-desglose-container" class="mb-6 p-3 bg-blue-50/50 rounded-xl border border-blue-100 hidden">
+                        <p class="text-[10px] font-bold text-blue-400 uppercase mb-2 text-center">Composición de Pago</p>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-blue-600">Saldo Anterior:</span>
+                            <span class="font-bold text-blue-800" id="pago-saldo-anterior">₲ 0</span>
+                        </div>
+                        <div class="flex justify-between text-xs">
+                            <span class="text-blue-600">Cuota Base:</span>
+                            <span class="font-bold text-blue-800" id="pago-cuota-base">₲ 0</span>
+                        </div>
+                    </div>
+
+                    <div class="mb-6">
+                        <label class="block text-xs font-semibold text-gray-600 uppercase mb-2 text-center">Monto
+                            Recibido</label>
+                        <div class="relative">
+                            <span class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">₲</span>
+                            <input type="text" id="pago-amount" name="amount" required
+                                class="w-full bg-gray-50 p-4 pl-10 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-success/50 text-2xl font-bold text-gray-800 text-center"
+                                value="0">
+                        </div>
+                    </div>
+                    <div class="flex justify-between items-center px-2 text-xs mb-4">
+                        <span class="text-gray-500">Saldo cuota: <strong class="text-gray-800">₲ <span
+                                    id="pago-restante">0</span></strong></span>
+                        <button type="button" onclick="setFullPayment()"
+                            class="font-bold text-success hover:underline">Autocompletar</button>
+                    </div>
+
+                    <div class="p-3 bg-gray-50 rounded-xl border border-gray-100 flex justify-between text-center">
+                        <div class="flex-1">
+                            <p class="text-[9px] font-bold text-gray-400 uppercase">Pagadas</p>
+                            <p class="text-sm font-bold text-success" id="pago-cuotas-pagadas">0</p>
+                        </div>
+                        <div class="w-px bg-gray-200 my-1"></div>
+                        <div class="flex-1">
+                            <p class="text-[9px] font-bold text-gray-400 uppercase">Pendientes</p>
+                            <p class="text-sm font-bold text-danger" id="pago-cuotas-pendientes">0</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-3 mt-8">
+                        <button type="submit"
+                            class="w-full py-3 bg-success hover:bg-emerald-600 shadow-md shadow-success/20 text-white rounded-xl font-bold text-base transition-colors">Confirmar
+                            Pago</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Confirmación Personalizado -->
+    <div id="modal-confirm" class="fixed inset-0 hidden z-[100] flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-xs rounded-2xl shadow-2xl overflow-hidden p-6 text-center border border-gray-100">
+            <div class="w-16 h-16 bg-danger/10 text-danger rounded-full flex items-center justify-center mx-auto mb-4">
+                <i class="fas fa-exclamation-triangle text-2xl"></i>
+            </div>
+            <h3 class="text-lg font-bold text-gray-800 mb-2">¿Estás seguro?</h3>
+            <p id="confirm-text" class="text-sm text-gray-500 mb-6">Esta acción no se puede deshacer.</p>
+            <div class="flex gap-3">
+                <button onclick="closeModal('modal-confirm')" class="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold transition-colors">Cancelar</button>
+                <button id="confirm-btn" class="flex-1 py-2.5 bg-danger hover:bg-red-600 text-white rounded-xl font-bold transition-colors">Eliminar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="app.js"></script>
+</body>
+
+</html>
