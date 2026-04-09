@@ -181,6 +181,32 @@
 </head>
 
 <body class="bg-background text-gray-800 h-screen overflow-hidden flex">
+    
+    <!-- Login Container -->
+    <div id="login-container" class="fixed inset-0 bg-sidebar z-[200] flex items-center justify-center p-4">
+        <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-sm">
+            <div class="text-center mb-8">
+                <div class="w-16 h-16 rounded-xl bg-primary text-white flex items-center justify-center font-bold text-3xl mx-auto mb-4">U</div>
+                <h2 class="text-2xl font-bold text-gray-800">Iniciar Sesión</h2>
+                <p class="text-gray-500 text-sm mt-1">Ingresa a UsureroSystem</p>
+            </div>
+            <form id="form-login" onsubmit="handleLogin(event)">
+                <div class="mb-4">
+                    <label class="block text-xs font-semibold text-gray-600 uppercase mb-2">Usuario</label>
+                    <input type="text" id="login-username" required class="w-full bg-gray-50 p-3 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-primary/50 text-gray-800">
+                </div>
+                <div class="mb-6">
+                    <label class="block text-xs font-semibold text-gray-600 uppercase mb-2">Contraseña</label>
+                    <input type="password" id="login-password" required class="w-full bg-gray-50 p-3 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-primary/50 text-gray-800">
+                </div>
+                <div id="login-error" class="hidden text-danger text-sm font-semibold text-center mb-4"></div>
+                <button type="submit" class="w-full py-3 bg-primary hover:bg-orange-600 shadow-md shadow-primary/20 text-white rounded-xl font-bold text-base transition-colors">Ingresar</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- App Container -->
+    <div id="app-container" class="flex-1 flex hidden-view w-full h-full w-full">
 
     <!-- Sidebar (Desktop) -->
     <aside class="w-64 bg-sidebar text-gray-400 flex-col hidden md:flex h-full shadow-xl z-20">
@@ -209,14 +235,14 @@
                 class="nav-btn w-full flex items-center px-8 py-3 hover:bg-sidebarhover hover:text-white transition-colors">
                 <span class="mr-3">📅</span> Pagos
             </button>
-            <div class="px-6 py-4 mt-6 text-xs font-semibold uppercase tracking-wider text-gray-500">Herramientas</div>
-            <button onclick="exportData('clientes')"
-                class="w-full flex items-center px-8 py-2 text-sm text-gray-400 hover:text-white transition-colors">
-                <span class="mr-3">📥</span> Exportar Clientes
+            <button onclick="switchView('configuracion', this)"
+                class="nav-btn w-full flex items-center px-8 py-3 hover:bg-sidebarhover hover:text-white transition-colors">
+                <span class="mr-3">⚙️</span> Configuración
             </button>
+            <div class="px-6 py-4 mt-6 text-xs font-semibold uppercase tracking-wider text-gray-500">Herramientas</div>
             <button onclick="exportData('prestamos')"
                 class="w-full flex items-center px-8 py-2 text-sm text-gray-400 hover:text-white transition-colors">
-                <span class="mr-3">📤</span> Exportar Préstamos
+                <span class="mr-3">📤</span> Exportar Préstamos (Excel)
             </button>
         </nav>
 
@@ -251,13 +277,15 @@
 
             <div class="flex items-center gap-4">
                 <div class="text-right hidden sm:block">
-                    <div class="text-sm font-semibold text-gray-800">Administrador</div>
+                    <div class="text-sm font-semibold text-gray-800" id="current-username">Administrador</div>
                     <div class="text-xs text-gray-500">Usurero System</div>
                 </div>
-                <div
-                    class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center font-bold shadow-md">
-                    A
+                <div class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center font-bold shadow-md">
+                    U
                 </div>
+                <button onclick="handleLogout()" class="ml-2 text-danger hover:text-red-700 font-bold px-3 py-1 bg-red-50 hover:bg-red-100 rounded-lg whitespace-nowrap transition-colors" title="Cerrar Sesión">
+                    <i class="fas fa-sign-out-alt"></i> Salir
+                </button>
             </div>
         </header>
 
@@ -442,6 +470,45 @@
                             </tbody>
                         </table>
                     </div>
+                </div>
+            </section>
+
+            <!-- VISTA: CONFIGURACIÓN -->
+            <section id="view-configuracion" class="view-section hidden-view">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800">Configuración</h2>
+                </div>
+
+                <div class="max-w-md bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="p-6 border-b border-gray-100 bg-gray-50/50">
+                        <h3 class="font-bold text-gray-800 flex items-center">
+                            <i class="fas fa-key mr-2 text-primary"></i> Cambiar Contraseña
+                        </h3>
+                    </div>
+                    <form id="form-change-password" onsubmit="handleChangePassword(event)" class="p-6 space-y-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 uppercase mb-2">Contraseña Actual</label>
+                            <input type="password" id="current-password" required 
+                                class="w-full bg-gray-50 p-3 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-primary/50 text-gray-800">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 uppercase mb-2">Nueva Contraseña</label>
+                            <input type="password" id="new-password" required 
+                                class="w-full bg-gray-50 p-3 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-primary/50 text-gray-800">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 uppercase mb-2">Confirmar Nueva Contraseña</label>
+                            <input type="password" id="confirm-new-password" required 
+                                class="w-full bg-gray-50 p-3 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-primary/50 text-gray-800">
+                        </div>
+                        
+                        <div id="change-password-message" class="hidden text-sm font-semibold text-center py-2"></div>
+
+                        <button type="submit" 
+                            class="w-full py-3 bg-primary hover:bg-orange-600 shadow-md shadow-primary/20 text-white rounded-xl font-bold text-base transition-colors">
+                            Guardar Cambios
+                        </button>
+                    </form>
                 </div>
             </section>
 
@@ -716,6 +783,8 @@
             </div>
         </div>
     </div>
+
+    </div> <!-- End App Container -->
 
     <!-- Scripts -->
     <script src="app.js"></script>

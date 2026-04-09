@@ -1,5 +1,107 @@
 const API_URL = '/api';
 
+// Auth State
+let authToken = localStorage.getItem('token') || null;
+
+async function handleLogin(e) {
+    e.preventDefault();
+    const btn = document.querySelector('#form-login button');
+    const errorEl = document.getElementById('login-error');
+    btn.disabled = true;
+    errorEl.classList.add('hidden');
+    
+    const username = document.getElementById('login-username').value;
+    const password = document.getElementById('login-password').value;
+
+    try {
+        const res = await fetch(`${API_URL}/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Credenciales incorrectas');
+        
+        authToken = data.token;
+        localStorage.setItem('token', authToken);
+        localStorage.setItem('username', data.username);
+        
+        document.getElementById('login-username').value = '';
+        document.getElementById('login-password').value = '';
+        
+        checkAuthAndInit();
+    } catch (err) {
+        errorEl.innerText = err.message;
+        errorEl.classList.remove('hidden');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function handleLogout() {
+    authToken = null;
+    localStorage.removeItem('token');
+    localStorage.removeItem('username');
+    document.getElementById('app-container').classList.add('hidden-view');
+    document.getElementById('login-container').classList.remove('hidden');
+}
+
+async function handleChangePassword(e) {
+    e.preventDefault();
+    const btn = e.target.querySelector('button');
+    const msgEl = document.getElementById('change-password-message');
+    
+    const currentPassword = document.getElementById('current-password').value;
+    const newPassword = document.getElementById('new-password').value;
+    const confirmNewPassword = document.getElementById('confirm-new-password').value;
+
+    if (newPassword !== confirmNewPassword) {
+        msgEl.innerText = 'Las nuevas contraseñas no coinciden';
+        msgEl.className = 'text-danger text-sm font-semibold text-center py-2';
+        msgEl.classList.remove('hidden');
+        return;
+    }
+
+    btn.disabled = true;
+    msgEl.classList.add('hidden');
+
+    try {
+        const res = await authFetch(`${API_URL}/change-password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ currentPassword, newPassword })
+        });
+        
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error al cambiar la contraseña');
+        
+        msgEl.innerText = 'Contraseña cambiada con éxito';
+        msgEl.className = 'text-success text-sm font-semibold text-center py-2';
+        msgEl.classList.remove('hidden');
+        e.target.reset();
+    } catch (err) {
+        msgEl.innerText = err.message;
+        msgEl.className = 'text-danger text-sm font-semibold text-center py-2';
+        msgEl.classList.remove('hidden');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// Custom authenticated fetch wrapper
+async function authFetch(url, options = {}) {
+    if (!options.headers) options.headers = {};
+    if (authToken) options.headers['Authorization'] = `Bearer ${authToken}`;
+    
+    const res = await fetch(url, options);
+    if (res.status === 401 || res.status === 403) {
+        handleLogout();
+        throw new Error('Sesión no autorizada o expirada.');
+    }
+    return res;
+}
+
 // State global
 let state = {
     clients: [],
@@ -35,46 +137,63 @@ const formatDate = (dateStr) => {
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
-    const dateInput = document.getElementById('start-date-input');
-    if(dateInput) dateInput.value = new Date().toISOString().split('T')[0];
-    
-    // Inicializar selectores de tabla al mes actual
-    const now = new Date();
-    const monthSelect = document.getElementById('table-month');
-    const yearSelect = document.getElementById('table-year');
-    if(monthSelect) monthSelect.value = now.getMonth();
-    if(yearSelect) yearSelect.value = now.getFullYear();
-    
-    const loanInputs = ['principal', 'interest_rate', 'installments_count'];
-    loanInputs.forEach(id => {
-        const el = document.querySelector(`#form-prestamo [name="${id}"]`);
-        if(el) el.addEventListener('input', updateLoanCalculations);
-    });
-
-    // Separador de miles en vivo para el capital
-    const principalInput = document.querySelector('#form-prestamo [name="principal"]');
-    if (principalInput) {
-        principalInput.addEventListener('input', (e) => {
-            let value = e.target.value.replace(/\D/g, "");
-            if (value) {
-                e.target.value = new Intl.NumberFormat('es-PY').format(value);
-            }
-        });
-    }
-
-    // Separador de miles en vivo para el pago
-    const pagoAmountInput = document.getElementById('pago-amount');
-    if (pagoAmountInput) {
-        pagoAmountInput.addEventListener('input', (e) => {
-            let value = e.target.value.replace(/\D/g, "");
-            if (value) {
-                e.target.value = new Intl.NumberFormat('es-PY').format(value);
-            }
-        });
-    }
-
-    fetchData();
+    checkAuthAndInit();
 });
+
+function checkAuthAndInit() {
+    if (authToken) {
+        document.getElementById('login-container').classList.add('hidden');
+        document.getElementById('app-container').classList.remove('hidden-view');
+        
+        const username = localStorage.getItem('username');
+        if (document.getElementById('current-username')) {
+            document.getElementById('current-username').innerText = username || 'Administrador';
+        }
+
+        const dateInput = document.getElementById('start-date-input');
+        if(dateInput) dateInput.value = new Date().toISOString().split('T')[0];
+        
+        // Inicializar selectores de tabla al mes actual
+        const now = new Date();
+        const monthSelect = document.getElementById('table-month');
+        const yearSelect = document.getElementById('table-year');
+        if(monthSelect) monthSelect.value = now.getMonth();
+        if(yearSelect) yearSelect.value = now.getFullYear();
+        
+        const loanInputs = ['principal', 'interest_rate', 'installments_count'];
+        loanInputs.forEach(id => {
+            const el = document.querySelector(`#form-prestamo [name="${id}"]`);
+            if(el) el.addEventListener('input', updateLoanCalculations);
+        });
+
+        // Separador de miles en vivo para el capital
+        const principalInput = document.querySelector('#form-prestamo [name="principal"]');
+        if (principalInput) {
+            principalInput.addEventListener('input', (e) => {
+                let value = e.target.value.replace(/\D/g, "");
+                if (value) {
+                    e.target.value = new Intl.NumberFormat('es-PY').format(value);
+                }
+            });
+        }
+
+        // Separador de miles en vivo para el pago
+        const pagoAmountInput = document.getElementById('pago-amount');
+        if (pagoAmountInput) {
+            pagoAmountInput.addEventListener('input', (e) => {
+                let value = e.target.value.replace(/\D/g, "");
+                if (value) {
+                    e.target.value = new Intl.NumberFormat('es-PY').format(value);
+                }
+            });
+        }
+
+        fetchData();
+    } else {
+        document.getElementById('app-container').classList.add('hidden-view');
+        document.getElementById('login-container').classList.remove('hidden');
+    }
+}
 
 function updateLoanCalculations() {
     const form = document.getElementById('form-prestamo');
@@ -94,11 +213,15 @@ function updateLoanCalculations() {
     }
 }
 
-function switchView(viewName, btnObj) {
+function switchView(viewName, btnObj, preserveFilter = false) {
     document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden-view'));
     document.querySelectorAll('.nav-btn:not(.bottom-btn)').forEach(el => el.classList.remove('nav-item-active'));
     document.querySelectorAll('.bottom-btn').forEach(el => el.classList.remove('bottom-nav-active'));
     
+    if (!preserveFilter) {
+        currentLoanFilter = null;
+    }
+
     const target = document.getElementById(`view-${viewName}`);
     if(target) target.classList.remove('hidden-view');
     
@@ -108,7 +231,7 @@ function switchView(viewName, btnObj) {
     }
 
     if (viewName === 'calendario') {
-        if(calendarInstance) setTimeout(() => calendarInstance.render(), 100);
+        renderCalendar();
         renderPaymentsTable();
     }
 }
@@ -116,10 +239,10 @@ function switchView(viewName, btnObj) {
 async function fetchData() {
     try {
         const [resCustomers, resLoans, resInst, resDash] = await Promise.all([
-            fetch(`${API_URL}/customers`).then(r => r.json()),
-            fetch(`${API_URL}/loans`).then(r => r.json()),
-            fetch(`${API_URL}/installments`).then(r => r.json()),
-            fetch(`${API_URL}/dashboard`).then(r => r.json())
+            authFetch(`${API_URL}/customers`).then(r => r.json()),
+            authFetch(`${API_URL}/loans`).then(r => r.json()),
+            authFetch(`${API_URL}/installments`).then(r => r.json()),
+            authFetch(`${API_URL}/dashboard`).then(r => r.json())
         ]);
         
         state.clients = resCustomers || [];
@@ -360,6 +483,21 @@ function renderCalendar() {
     if(!calendarEl) return;
     
     let items = state.installments;
+    
+    // UI Filter info
+    const filterInfo = document.getElementById('calendar-filter-info');
+    if (filterInfo) {
+        if (currentLoanFilter) {
+            const loan = state.loans.find(l => l.id === currentLoanFilter);
+            const client = loan ? state.clients.find(c => c.id === loan.customer_id) : null;
+            document.getElementById('filtered-loan-id').innerText = `#${currentLoanFilter.slice(0,8)}`;
+            document.getElementById('filtered-client-name').innerText = client ? client.full_name : 'Desconocido';
+            filterInfo.classList.remove('hidden');
+        } else {
+            filterInfo.classList.add('hidden');
+        }
+    }
+
     if (currentLoanFilter) items = items.filter(inst => inst.loan_id === currentLoanFilter);
 
     const events = items.map(inst => {
@@ -482,7 +620,7 @@ function renderPaymentsTable() {
 
 function filterCalendarByLoan(loanId) {
     currentLoanFilter = loanId;
-    switchView('calendario', document.querySelector('[onclick*="calendario"]'));
+    switchView('calendario', document.querySelector('[onclick*="calendario"]'), true);
     renderCalendar();
     renderPaymentsTable();
 }
@@ -500,7 +638,7 @@ function setFullPayment() {
 
 async function openExpedienteModal(clientId) {
     try {
-        const res = await fetch(`${API_URL}/customers/${clientId}/expediente`);
+        const res = await authFetch(`${API_URL}/customers/${clientId}/expediente`);
         const data = await res.json();
         const { customer, loans, installments, is_moroso } = data;
 
@@ -657,7 +795,7 @@ function showConfirm(text, onConfirm) {
 async function deleteClient(id) {
     showConfirm("¿Estás seguro de eliminar este cliente? Se eliminarán también todos sus préstamos asociados.", async () => {
         try {
-            const res = await fetch(`${API_URL}/customers/${id}`, { method: 'DELETE' });
+            const res = await authFetch(`${API_URL}/customers/${id}`, { method: 'DELETE' });
             if(!res.ok) throw new Error(await res.text());
             fetchData();
         } catch(err) {
@@ -702,7 +840,7 @@ async function submitForm(e, type) {
         const id = document.getElementById('client-id-hidden').value;
         if(id) {
             endpoint = `/customers/${id}`;
-            const res = await fetch(`${API_URL}${endpoint}`, {
+            const res = await authFetch(`${API_URL}${endpoint}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data)
@@ -720,7 +858,7 @@ async function submitForm(e, type) {
         data.amount = parseMoney(data.amount);
     }
     try {
-        const res = await fetch(`${API_URL}${endpoint}`, {
+        const res = await authFetch(`${API_URL}${endpoint}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
@@ -776,7 +914,7 @@ function openPaymentModal(inst_id, loan_id, client_name, amount) {
 
 async function updateStatusCron() {
     try {
-        const res = await fetch(`${API_URL}/trigger-accumulation`, { method: 'POST' });
+        const res = await authFetch(`${API_URL}/trigger-accumulation`, { method: 'POST' });
         const data = await res.json();
         alert(data.message);
         fetchData();
@@ -786,12 +924,40 @@ async function updateStatusCron() {
 }
 
 async function exportData(type) {
-    const res = await fetch(`${API_URL}/export/${type}`);
-    const data = await res.json();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${type}.json`;
-    a.click();
+    try {
+        const res = await authFetch(`${API_URL}/export/${type}`);
+        const data = await res.json();
+        
+        if (type === 'prestamos') {
+            // Cabeceras para el CSV (Excel friendly)
+            const headers = ['ID', 'Cliente', 'Monto Original', 'Tasa (%)', 'Frecuencia', 'Cuotas Totales', 'Estado', 'Fecha Creación'];
+            
+            const rows = data.map(l => {
+                const client = state.clients.find(c => c.id === l.customer_id);
+                return [
+                    l.id.slice(0, 8),
+                    client ? client.full_name : 'Desconocido',
+                    l.amount,
+                    l.interest_rate,
+                    l.frequency,
+                    l.total_installments,
+                    l.status,
+                    formatDate(l.created_at)
+                ].map(val => `"${val}"`).join(';');
+            });
+            
+            const csvContent = "\uFEFF" + headers.join(';') + "\n" + rows.join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Prestamos_${new Date().toLocaleDateString('es-PY').replace(/\//g, '-')}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }
+    } catch (err) {
+        alert("Error al exportar los datos");
+    }
 }

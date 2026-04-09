@@ -3,6 +3,10 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import pool from './db.js';
 import { startCronJob, runAccumulation } from './cron/accumulation.js';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcrypt';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'usurero_secret_key_123';
 
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -29,6 +33,66 @@ app.post('/api/trigger-accumulation', async (req, res) => {
         res.json({ message: 'Accumulation job triggered successfully' });
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+// Endpoint de Login
+app.post('/api/login', async (req, res) => {
+    const { username, password } = req.body;
+    try {
+        const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+        if (result.rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
+        
+        const user = result.rows[0];
+        const match = await bcrypt.compare(password, user.password_hash);
+        if (!match) return res.status(401).json({ error: 'Invalid credentials' });
+        
+        const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '24h' });
+        res.json({ token, username: user.username });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Middleware de Autenticación
+const verifyToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    if (!authHeader) return res.status(403).json({ error: 'No token provided' });
+    
+    const token = authHeader.split(' ')[1];
+    if (!token) return res.status(403).json({ error: 'No token provided' });
+    
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+        if (err) return res.status(401).json({ error: 'Unauthorized' });
+        req.userId = decoded.id;
+        next();
+    });
+};
+
+app.use('/api', (req, res, next) => {
+    if (req.path === '/login' || req.path === '/trigger-accumulation') return next();
+    verifyToken(req, res, next);
+});
+
+// Endpoint de Cambio de Contraseña
+app.post('/api/change-password', async (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+    const userId = req.userId;
+
+    try {
+        const result = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+        if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+
+        const user = result.rows[0];
+        const match = await bcrypt.compare(currentPassword, user.password_hash);
+        if (!match) return res.status(400).json({ error: 'Contraseña actual incorrecta' });
+
+        const newPasswordHash = await bcrypt.hash(newPassword, 10);
+        await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [newPasswordHash, userId]);
+
+        res.json({ message: 'Contraseña actualizada exitosamente' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
