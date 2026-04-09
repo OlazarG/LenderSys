@@ -21,10 +21,17 @@ GRANT ALL PRIVILEGES ON DATABASE usurero_db TO admin;
 \q
 ```
 
-### Cargar las tablas
-Desde la carpeta donde tengas el código fuente o el archivo `schema.sql`:
+### Cargar las tablas e Inicializar Usuario
+Desde la carpeta del proyecto, carga el esquema y luego ejecuta el script de inicialización para crear el usuario administrador:
 ```bash
+# 1. Cargar tablas
 sudo -u postgres psql -d usurero_db -f schema.sql
+
+# 2. Instalar dependencias necesarias (bcrypt, jwt, etc)
+npm install
+
+# 3. Crear usuario administrador por defecto (User: admin / Pass: admin123)
+npm run init-db
 ```
 
 ## 2. Instalar la Aplicación
@@ -52,6 +59,9 @@ DB_HOST=localhost
 DB_NAME=usurero_db
 DB_PASSWORD=admin
 DB_PORT=5432
+
+# Secreto para tokens de sesión (Login)
+JWT_SECRET=tu_clave_secreta_aqui
 ```
 
 ## 4. Ejecución y Logs

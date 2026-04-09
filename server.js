@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import pool from './db.js';
 import { startCronJob, runAccumulation } from './cron/accumulation.js';
 import jwt from 'jsonwebtoken';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'usurero_secret_key_123';
 
