@@ -202,7 +202,7 @@ function updateLoanCalculations() {
     const count = parseInt(form.querySelector('[name="installments_count"]').value) || 0;
 
     if (principal > 0 && count > 0) {
-        const totalInterest = principal * (interestRate / 100) * count;
+        const totalInterest = principal * (interestRate / 100);
         const totalAmount = principal + totalInterest;
         const installmentAmount = totalAmount / count;
         document.getElementById('calc-installment').innerText = formatMoney(installmentAmount);
