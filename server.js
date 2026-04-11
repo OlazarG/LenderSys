@@ -284,6 +284,70 @@ app.post('/api/payments', async (req, res) => {
                     [loan_id, inst.installment_number + 1, nextDate.toISOString(), 0, diff]
                 );
             }
+        } else if (diff < 0) {
+            // Caso: Pagó MÁS de lo debido -> Buscar siguientes cuotas pendientes para aplicar el excedente
+            let excess = Math.abs(diff);
+            
+            // 3.1 Limitar o corregir esta cuota actual para que quede saldada exactamente
+            await client.query("UPDATE installments SET paid_amount = $1 WHERE id = $2", [total_due, installment_id]);
+            
+            // 3.2 Buscar cuotas posteriores que no estén pagadas
+            const pendingRes = await client.query(
+                "SELECT * FROM installments WHERE loan_id = $1 AND status != 'PAGADO' AND installment_number > $2 ORDER BY installment_number ASC",
+                [loan_id, inst.installment_number]
+            );
+            
+            for (let target of pendingRes.rows) {
+                if (excess <= 0) break;
+                
+                const target_due = parseFloat(target.total_due);
+                
+                if (excess >= target_due) {
+                    // Liquida esta cuota por completo
+                    await client.query(
+                        "UPDATE installments SET status = 'PAGADO', paid_amount = $1 WHERE id = $2",
+                        [target_due, target.id]
+                    );
+                    excess -= target_due;
+                } else {
+                    // Paga solo una parte de esta cuota
+                    await client.query(
+                        "UPDATE installments SET status = 'PAGADO', paid_amount = $1 WHERE id = $2",
+                        [excess, target.id]
+                    );
+                    
+                    const targetDiff = target_due - excess;
+                    
+                    // El RESTO de la deuda se arrastra a la siguiente (exactamente como si el usuario hubiera pagado de menos)
+                    const nextTargetRes = await client.query(
+                        "SELECT * FROM installments WHERE loan_id = $1 AND installment_number = $2",
+                        [loan_id, target.installment_number + 1]
+                    );
+                    
+                    if (nextTargetRes.rows.length > 0) {
+                        await client.query(
+                            "UPDATE installments SET carried_over_amount = carried_over_amount + $1 WHERE id = $2",
+                            [targetDiff, nextTargetRes.rows[0].id]
+                        );
+                    } else {
+                        let nextDate = new Date(target.due_date);
+                        if(inst.frequency === 'MENSUAL') nextDate.setMonth(nextDate.getMonth() + 1);
+                        else if (inst.frequency === 'QUINCENAL') nextDate.setDate(nextDate.getDate() + 15);
+                        else nextDate.setDate(nextDate.getDate() + 7);
+
+                        await client.query(
+                            "INSERT INTO installments (loan_id, installment_number, due_date, original_amount, carried_over_amount) VALUES ($1, $2, $3, $4, $5)",
+                            [loan_id, target.installment_number + 1, nextDate.toISOString(), 0, targetDiff]
+                        );
+                    }
+                    excess = 0;
+                }
+            }
+            
+            // Si incluso después de liquidar TODAS las cuotas sigue sobrando plata, se archiva en la actual
+            if (excess > 0) {
+                 await client.query("UPDATE installments SET paid_amount = paid_amount + $1 WHERE id = $2", [excess, installment_id]);
+            }
         }
         
         // 4. Verificar si el préstamo se ha liquidado totalmente
