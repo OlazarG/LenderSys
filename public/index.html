@@ -409,26 +409,13 @@
                     </div>
                 </div>
 
-                <div id="calendar-filter-info"
-                    class="hidden bg-primary/10 border border-primary/20 p-3 rounded-lg mb-4 flex justify-between items-center">
-                    <span class="text-sm font-medium text-primary">
-                        Filtrado por Préstamo <span id="filtered-loan-id" class="font-bold">#0</span>
-                        (<span id="filtered-client-name">Cliente</span>)
-                    </span>
-                    <button onclick="clearLoanFilter()"
-                        class="text-xs bg-white text-primary px-3 py-1 rounded shadow-sm hover:bg-gray-50 border border-primary/20 font-bold">Quitar
-                        Filtro</button>
-                </div>
-
-                <div id="calendar"
-                    class="bg-white rounded-xl shadow-sm border border-gray-100 p-2 min-h-[500px]"></div>
-
-                <!-- Nueva Sección: Tabla Detallada (Excel-like) -->
-                <div class="mt-8 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <!-- Planilla Detallada de Cobros (Ahora arriba) -->
+                <div class="mb-8 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                     <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                         <h3 class="font-bold text-gray-800 text-sm uppercase tracking-wider">Planilla Detallada de Cobros</h3>
                         <div class="flex gap-2">
-                             <select id="table-month" class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-primary" onchange="renderPaymentsTable()">
+                             <select id="table-month" class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-primary" onchange="syncCalendarAndTable()">
+                                <option value="todos">Todos los meses</option>
                                 <option value="0">Enero</option>
                                 <option value="1">Febrero</option>
                                 <option value="2">Marzo</option>
@@ -442,7 +429,7 @@
                                 <option value="10">Noviembre</option>
                                 <option value="11">Diciembre</option>
                              </select>
-                             <select id="table-year" class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-primary" onchange="renderPaymentsTable()">
+                             <select id="table-year" class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-primary" onchange="syncCalendarAndTable()">
                                 <option value="2024">2024</option>
                                 <option value="2025">2025</option>
                                 <option value="2026">2026</option>
@@ -453,7 +440,7 @@
                                 onkeyup="renderPaymentsTable()">
                         </div>
                     </div>
-                    <div class="overflow-x-auto">
+                    <div class="overflow-x-auto overflow-y-auto max-h-[600px] relative">
                         <table class="w-full text-left text-sm whitespace-nowrap">
                             <thead class="bg-gray-50 text-gray-600 font-semibold border-b border-gray-100">
                                 <tr>
@@ -471,6 +458,21 @@
                         </table>
                     </div>
                 </div>
+
+                <div id="calendar-filter-info"
+                    class="hidden bg-primary/10 border border-primary/20 p-3 rounded-lg mb-4 flex justify-between items-center">
+                    <span class="text-sm font-medium text-primary">
+                        Filtrado por Préstamo <span id="filtered-loan-id" class="font-bold">#0</span>
+                        (<span id="filtered-client-name">Cliente</span>)
+                    </span>
+                    <button onclick="clearLoanFilter()"
+                        class="text-xs bg-white text-primary px-3 py-1 rounded shadow-sm hover:bg-gray-50 border border-primary/20 font-bold">Quitar
+                        Filtro</button>
+                </div>
+
+                <div id="calendar"
+                    class="bg-white rounded-xl shadow-sm border border-gray-100 p-2 min-h-[500px]"></div>
+
             </section>
 
             <!-- VISTA: CONFIGURACIÓN -->

@@ -214,6 +214,7 @@ app.get('/api/installments', async (req, res) => {
                 i.*, 
                 l.amount as monto_prestamo, 
                 l.frequency as frecuencia,
+                c.id as customer_id,
                 c.full_name as client_name
             FROM installments i
             JOIN loans l ON i.loan_id = l.id
@@ -248,32 +249,27 @@ app.post('/api/payments', async (req, res) => {
         const inst = instRes.rows[0];
         const loan_id = inst.loan_id;
         const total_due = parseFloat(inst.total_due);
+        const prev_paid = parseFloat(inst.paid_amount || 0);
+        const debt_remaining = total_due - prev_paid;
         
-        // 2. Marcar cuota actual como pagada
-        await client.query(
-            "UPDATE installments SET status = 'PAGADO', paid_amount = $1 WHERE id = $2",
-            [received, installment_id]
-        );
-        
-        // 3. Manejar excedente o deuda faltante
-        const diff = total_due - received;
+        const diff = debt_remaining - received;
         
         if (diff > 0) {
-            // Caso: Pagó MENOS de lo debido -> Arrastrar a la siguiente
-            // Buscar si existe una siguiente cuota
+            // Caso: Pagó MENOS de lo debido -> STATUS = PAGADO (porque la deuda salta a la sgte), paid_amount se suma
+            await client.query("UPDATE installments SET status = 'PAGADO', paid_amount = $1 WHERE id = $2", [prev_paid + received, inst.id]);
+            
+            // Arrastrar a la siguiente
             const nextInstRes = await client.query(
                 "SELECT * FROM installments WHERE loan_id = $1 AND installment_number = $2",
                 [loan_id, inst.installment_number + 1]
             );
             
             if (nextInstRes.rows.length > 0) {
-                // Existe -> Sumar al carried_over
                 await client.query(
                     "UPDATE installments SET carried_over_amount = carried_over_amount + $1 WHERE id = $2",
                     [diff, nextInstRes.rows[0].id]
                 );
             } else {
-                // NO existe -> Crear una NUEVA cuota (Extensión del préstamo)
                 let nextDate = new Date(inst.due_date);
                 if(inst.frequency === 'MENSUAL') nextDate.setMonth(nextDate.getMonth() + 1);
                 else if (inst.frequency === 'QUINCENAL') nextDate.setDate(nextDate.getDate() + 15);
@@ -284,69 +280,48 @@ app.post('/api/payments', async (req, res) => {
                     [loan_id, inst.installment_number + 1, nextDate.toISOString(), 0, diff]
                 );
             }
-        } else if (diff < 0) {
-            // Caso: Pagó MÁS de lo debido -> Buscar siguientes cuotas pendientes para aplicar el excedente
+        } else {
+            // Pagó EXACTO o MÁS de lo debido (diff <= 0)
             let excess = Math.abs(diff);
-            
-            // 3.1 Limitar o corregir esta cuota actual para que quede saldada exactamente
-            await client.query("UPDATE installments SET paid_amount = $1 WHERE id = $2", [total_due, installment_id]);
-            
-            // 3.2 Buscar cuotas posteriores que no estén pagadas
-            const pendingRes = await client.query(
-                "SELECT * FROM installments WHERE loan_id = $1 AND status != 'PAGADO' AND installment_number > $2 ORDER BY installment_number ASC",
-                [loan_id, inst.installment_number]
-            );
-            
-            for (let target of pendingRes.rows) {
-                if (excess <= 0) break;
-                
-                const target_due = parseFloat(target.total_due);
-                
-                if (excess >= target_due) {
-                    // Liquida esta cuota por completo
-                    await client.query(
-                        "UPDATE installments SET status = 'PAGADO', paid_amount = $1 WHERE id = $2",
-                        [target_due, target.id]
-                    );
-                    excess -= target_due;
-                } else {
-                    // Paga solo una parte de esta cuota
-                    await client.query(
-                        "UPDATE installments SET status = 'PAGADO', paid_amount = $1 WHERE id = $2",
-                        [excess, target.id]
-                    );
-                    
-                    const targetDiff = target_due - excess;
-                    
-                    // El RESTO de la deuda se arrastra a la siguiente (exactamente como si el usuario hubiera pagado de menos)
-                    const nextTargetRes = await client.query(
-                        "SELECT * FROM installments WHERE loan_id = $1 AND installment_number = $2",
-                        [loan_id, target.installment_number + 1]
-                    );
-                    
-                    if (nextTargetRes.rows.length > 0) {
-                        await client.query(
-                            "UPDATE installments SET carried_over_amount = carried_over_amount + $1 WHERE id = $2",
-                            [targetDiff, nextTargetRes.rows[0].id]
-                        );
-                    } else {
-                        let nextDate = new Date(target.due_date);
-                        if(inst.frequency === 'MENSUAL') nextDate.setMonth(nextDate.getMonth() + 1);
-                        else if (inst.frequency === 'QUINCENAL') nextDate.setDate(nextDate.getDate() + 15);
-                        else nextDate.setDate(nextDate.getDate() + 7);
 
-                        await client.query(
-                            "INSERT INTO installments (loan_id, installment_number, due_date, original_amount, carried_over_amount) VALUES ($1, $2, $3, $4, $5)",
-                            [loan_id, target.installment_number + 1, nextDate.toISOString(), 0, targetDiff]
-                        );
-                    }
-                    excess = 0;
-                }
-            }
+            // La cuota actual queda PAGADA al 100%
+            await client.query("UPDATE installments SET status = 'PAGADO', paid_amount = $1, overpaid_amount = $2 WHERE id = $3", [total_due, excess, inst.id]);
             
-            // Si incluso después de liquidar TODAS las cuotas sigue sobrando plata, se archiva en la actual
             if (excess > 0) {
-                 await client.query("UPDATE installments SET paid_amount = paid_amount + $1 WHERE id = $2", [excess, installment_id]);
+                // Hay excedente, aplicarlo a las cuotas posteriores (Adelanto)
+                const pendingRes = await client.query(
+                    "SELECT * FROM installments WHERE loan_id = $1 AND status != 'PAGADO' AND installment_number > $2 ORDER BY installment_number ASC",
+                    [loan_id, inst.installment_number]
+                );
+                
+                for (let target of pendingRes.rows) {
+                    if (excess <= 0) break;
+                    
+                    const target_due = parseFloat(target.total_due);
+                    const target_paid = parseFloat(target.paid_amount || 0);
+                    const target_remaining = target_due - target_paid;
+                    
+                    if (excess >= target_remaining) {
+                        // Liquida esta cuota por completo
+                        await client.query(
+                            "UPDATE installments SET status = 'PAGADO', paid_amount = $1 WHERE id = $2",
+                            [target_due, target.id]
+                        );
+                        excess -= target_remaining;
+                    } else {
+                        // Paga solo una parte de esta cuota, se mantiene PENDIENTE (Adelanto parcial)
+                        await client.query(
+                            "UPDATE installments SET paid_amount = paid_amount + $1 WHERE id = $2",
+                            [excess, target.id]
+                        );
+                        excess = 0;
+                    }
+                }
+                
+                // Si sobra plata incluso después de liquidar todo, se asienta en la actual
+                if (excess > 0) {
+                     await client.query("UPDATE installments SET paid_amount = paid_amount + $1 WHERE id = $2", [excess, inst.id]);
+                }
             }
         }
         
@@ -389,8 +364,8 @@ app.get('/api/dashboard', async (req, res) => {
             SELECT 
                 COALESCE(SUM(amount), 0) as total_prestado,
                 COALESCE(SUM(amount * (interest_rate / 100)), 0) as total_intereses,
-                (SELECT COALESCE(SUM(total_due), 0) FROM installments WHERE status = 'PAGADO') as total_recuperado,
-                (SELECT COALESCE(SUM(total_due), 0) FROM installments WHERE status = 'ATRASADO' OR (due_date < CURRENT_DATE AND status = 'PENDIENTE')) as total_mora
+                (SELECT COALESCE(SUM(paid_amount + overpaid_amount), 0) FROM installments) as total_recuperado,
+                (SELECT COALESCE(SUM(total_due - paid_amount), 0) FROM installments WHERE status = 'ATRASADO' OR (due_date < CURRENT_DATE AND status = 'PENDIENTE')) as total_mora
             FROM loans
         `);
         res.json(stats.rows[0]);

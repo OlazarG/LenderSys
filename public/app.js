@@ -9,7 +9,7 @@ async function handleLogin(e) {
     const errorEl = document.getElementById('login-error');
     btn.disabled = true;
     errorEl.classList.add('hidden');
-    
+
     const username = document.getElementById('login-username').value;
     const password = document.getElementById('login-password').value;
 
@@ -19,17 +19,17 @@ async function handleLogin(e) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
         });
-        
+
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Credenciales incorrectas');
-        
+
         authToken = data.token;
         localStorage.setItem('token', authToken);
         localStorage.setItem('username', data.username);
-        
+
         document.getElementById('login-username').value = '';
         document.getElementById('login-password').value = '';
-        
+
         checkAuthAndInit();
     } catch (err) {
         errorEl.innerText = err.message;
@@ -51,7 +51,7 @@ async function handleChangePassword(e) {
     e.preventDefault();
     const btn = e.target.querySelector('button');
     const msgEl = document.getElementById('change-password-message');
-    
+
     const currentPassword = document.getElementById('current-password').value;
     const newPassword = document.getElementById('new-password').value;
     const confirmNewPassword = document.getElementById('confirm-new-password').value;
@@ -72,10 +72,10 @@ async function handleChangePassword(e) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ currentPassword, newPassword })
         });
-        
+
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Error al cambiar la contraseña');
-        
+
         msgEl.innerText = 'Contraseña cambiada con éxito';
         msgEl.className = 'text-success text-sm font-semibold text-center py-2';
         msgEl.classList.remove('hidden');
@@ -93,7 +93,7 @@ async function handleChangePassword(e) {
 async function authFetch(url, options = {}) {
     if (!options.headers) options.headers = {};
     if (authToken) options.headers['Authorization'] = `Bearer ${authToken}`;
-    
+
     const res = await fetch(url, options);
     if (res.status === 401 || res.status === 403) {
         handleLogout();
@@ -115,23 +115,23 @@ let currentLoanFilter = null;
 
 // Utilities
 const formatMoney = (amount) => {
-    return new Intl.NumberFormat('es-PY', { 
-        style: 'currency', 
+    return new Intl.NumberFormat('es-PY', {
+        style: 'currency',
         currency: 'PYG',
         maximumFractionDigits: 0
     }).format(Math.round(amount || 0));
 };
 
 const parseMoney = (str) => {
-    if(typeof str === 'number') return str;
-    if(!str) return 0;
+    if (typeof str === 'number') return str;
+    if (!str) return 0;
     return parseFloat(str.toString().replace(/\./g, '')) || 0;
 };
 
 const formatDate = (dateStr) => {
     if (!dateStr) return 'N/A';
-    const split = dateStr.slice(0,10).split('-');
-    if(split.length < 3) return dateStr;
+    const split = dateStr.slice(0, 10).split('-');
+    if (split.length < 3) return dateStr;
     return `${split[2]}/${split[1]}/${split[0]}`; // DD/MM/YYYY
 };
 
@@ -144,26 +144,26 @@ function checkAuthAndInit() {
     if (authToken) {
         document.getElementById('login-container').classList.add('hidden');
         document.getElementById('app-container').classList.remove('hidden-view');
-        
+
         const username = localStorage.getItem('username');
         if (document.getElementById('current-username')) {
             document.getElementById('current-username').innerText = username || 'Administrador';
         }
 
         const dateInput = document.getElementById('start-date-input');
-        if(dateInput) dateInput.value = new Date().toISOString().split('T')[0];
-        
+        if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
+
         // Inicializar selectores de tabla al mes actual
         const now = new Date();
         const monthSelect = document.getElementById('table-month');
         const yearSelect = document.getElementById('table-year');
-        if(monthSelect) monthSelect.value = now.getMonth();
-        if(yearSelect) yearSelect.value = now.getFullYear();
-        
+        if (monthSelect) monthSelect.value = now.getMonth();
+        if (yearSelect) yearSelect.value = now.getFullYear();
+
         const loanInputs = ['principal', 'interest_rate', 'installments_count'];
         loanInputs.forEach(id => {
             const el = document.querySelector(`#form-prestamo [name="${id}"]`);
-            if(el) el.addEventListener('input', updateLoanCalculations);
+            if (el) el.addEventListener('input', updateLoanCalculations);
         });
 
         // Separador de miles en vivo para el capital
@@ -217,16 +217,16 @@ function switchView(viewName, btnObj, preserveFilter = false) {
     document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden-view'));
     document.querySelectorAll('.nav-btn:not(.bottom-btn)').forEach(el => el.classList.remove('nav-item-active'));
     document.querySelectorAll('.bottom-btn').forEach(el => el.classList.remove('bottom-nav-active'));
-    
+
     if (!preserveFilter) {
         currentLoanFilter = null;
     }
 
     const target = document.getElementById(`view-${viewName}`);
-    if(target) target.classList.remove('hidden-view');
-    
-    if(btnObj) {
-        if(btnObj.classList.contains('bottom-btn')) btnObj.classList.add('bottom-nav-active');
+    if (target) target.classList.remove('hidden-view');
+
+    if (btnObj) {
+        if (btnObj.classList.contains('bottom-btn')) btnObj.classList.add('bottom-nav-active');
         else btnObj.classList.add('nav-item-active');
     }
 
@@ -244,7 +244,7 @@ async function fetchData() {
             authFetch(`${API_URL}/installments`).then(r => r.json()),
             authFetch(`${API_URL}/dashboard`).then(r => r.json())
         ]);
-        
+
         state.clients = resCustomers || [];
         state.loans = resLoans || [];
         state.installments = resInst || [];
@@ -254,9 +254,9 @@ async function fetchData() {
         renderDashboard(resDash);
         renderCalendar();
         renderPaymentsTable();
-        
+
         const selectClient = document.getElementById('select-client');
-        if(selectClient) {
+        if (selectClient) {
             selectClient.innerHTML = '<option value="" disabled selected>Seleccionar Cliente</option>';
             state.clients.forEach(c => {
                 selectClient.innerHTML += `<option value="${c.id}">${c.full_name}</option>`;
@@ -268,7 +268,7 @@ async function fetchData() {
 }
 
 function renderDashboard(data) {
-    if(!data) data = {};
+    if (!data) data = {};
     const kpis = {
         'dash-prestado': data.total_prestado,
         'dash-intereses': data.total_intereses,
@@ -278,7 +278,7 @@ function renderDashboard(data) {
     // Nota: El HTML original puede que no tenga todos estos IDs, pero los mapeamos por si acaso
     Object.keys(kpis).forEach(id => {
         const el = document.getElementById(id);
-        if(el) el.innerText = formatMoney(kpis[id] || 0);
+        if (el) el.innerText = formatMoney(kpis[id] || 0);
     });
 
     const todayStr = new Date().toISOString().split('T')[0];
@@ -299,18 +299,18 @@ function renderDashboard(data) {
         }
     });
 
-    const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.innerText = val; };
+    const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
     setVal('dash-hoy-esperado', formatMoney(hoyEsperado));
     setVal('dash-hoy-count', hoyCount);
     setVal('dash-pend-count', pendCount);
     setVal('dash-venc-count', vencCount);
 
-    upcoming.sort((a,b) => new Date(a.due_date) - new Date(b.due_date));
+    upcoming.sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
     const mList = document.getElementById('list-upcoming');
-    if(mList) {
+    if (mList) {
         mList.innerHTML = '';
-        if(upcoming.length === 0) {
-           mList.innerHTML = '<li class="py-2 text-sm text-gray-500">No hay pagos próximos.</li>'; 
+        if (upcoming.length === 0) {
+            mList.innerHTML = '<li class="py-2 text-sm text-gray-500">No hay pagos próximos.</li>';
         } else {
             upcoming.slice(0, 5).forEach(inst => {
                 const isLate = inst.due_date < todayStr;
@@ -332,14 +332,14 @@ function renderDashboard(data) {
 
 function renderChart() {
     const canvas = document.getElementById('mainChart');
-    if(!canvas) return;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    const revenues = { 'Jan': 0, 'Feb': 0, 'Mar': 0, 'Apr': 0, 'May': 0, 'Jun': 0, 'Jul': 0, 'Aug':0, 'Sep':0, 'Oct':0, 'Nov':0, 'Dec':0 };
+    const revenues = { 'Jan': 0, 'Feb': 0, 'Mar': 0, 'Apr': 0, 'May': 0, 'Jun': 0, 'Jul': 0, 'Aug': 0, 'Sep': 0, 'Oct': 0, 'Nov': 0, 'Dec': 0 };
     const monthNames = Object.keys(revenues);
     state.installments.forEach(inst => {
         const d = new Date(inst.due_date);
         const m = d.getMonth();
-        if(m >= 0 && m < 12) revenues[monthNames[m]] += parseFloat(inst.total_due);
+        if (m >= 0 && m < 12) revenues[monthNames[m]] += parseFloat(inst.total_due);
     });
     const dataArr = monthNames.map(m => revenues[m]);
     if (chartInstance) chartInstance.destroy();
@@ -374,10 +374,10 @@ function renderClientsList() {
     const searchEl = document.getElementById('search-client');
     const term = searchEl ? searchEl.value.toLowerCase() : '';
     const container = document.getElementById('clients-list');
-    if(!container) return;
+    if (!container) return;
     container.innerHTML = '';
     const filtered = state.clients.filter(c => c.full_name.toLowerCase().includes(term));
-    if(filtered.length === 0) {
+    if (filtered.length === 0) {
         container.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-gray-500">No se encontraron clientes.</td></tr>';
         return;
     }
@@ -386,7 +386,7 @@ function renderClientsList() {
             <tr class="hover:bg-gray-50 transition-colors cursor-pointer" onclick="openExpedienteModal('${c.id}')">
                 <td class="px-6 py-4">
                     <div class="font-medium text-gray-800">${c.full_name}</div>
-                    <div class="text-[10px] text-gray-400">ID: ${c.id.slice(0,8)}</div>
+                    <div class="text-[10px] text-gray-400">ID: ${c.id.slice(0, 8)}</div>
                 </td>
                 <td class="px-6 py-4 text-gray-600">${c.phone || '-'}</td>
                 <td class="px-6 py-4 text-gray-600">Normal</td>
@@ -415,16 +415,16 @@ function renderClientsList() {
 
 function renderLoansList() {
     const container = document.getElementById('loans-list');
-    if(!container) return;
+    if (!container) return;
     container.innerHTML = '';
-    if(state.loans.length === 0) {
+    if (state.loans.length === 0) {
         container.innerHTML = '<p class="text-gray-500 col-span-full text-center py-8">No hay préstamos registrados</p>';
         return;
     }
     state.loans.forEach(l => {
         const client = state.clients.find(c => c.id === l.customer_id);
         const clientName = client ? client.full_name : 'Desconocido';
-        
+
         // Calcular cuotas resumen
         const loanInsts = state.installments.filter(inst => inst.loan_id === l.id);
         const pagadas = loanInsts.filter(i => i.status === 'PAGADO').length;
@@ -448,7 +448,8 @@ function renderLoansList() {
                 <div class="absolute top-0 right-0 ${badgeColor} text-[10px] font-bold px-3 py-1 rounded-bl-lg">${statusText}</div>
                 <div class="mb-4">
                     <h4 class="font-bold text-gray-800 text-lg">${clientName}</h4>
-                    <p class="text-xs text-gray-400">Ref #${l.id.slice(0,8)} • ${l.frequency}</p>
+                    <p class="text-xs text-gray-400">Ref #${l.id.slice(0, 8)} • ${l.frequency}</p>
+                    <button onclick="event.stopPropagation(); openExpedienteModal('${l.customer_id}')" class="mt-2 text-xs font-bold text-primary hover:text-orange-700 hover:underline inline-flex items-center gap-1">Ver Expediente <i class="fas fa-arrow-right text-[10px]"></i></button>
                 </div>
                 <div class="grid grid-cols-2 gap-y-4 gap-x-2 text-sm bg-gray-50 p-3 rounded-lg border border-gray-100">
                     <div>
@@ -480,17 +481,17 @@ function renderLoansList() {
 
 function renderCalendar() {
     const calendarEl = document.getElementById('calendar');
-    if(!calendarEl) return;
-    
+    if (!calendarEl) return;
+
     let items = state.installments;
-    
+
     // UI Filter info
     const filterInfo = document.getElementById('calendar-filter-info');
     if (filterInfo) {
         if (currentLoanFilter) {
             const loan = state.loans.find(l => l.id === currentLoanFilter);
             const client = loan ? state.clients.find(c => c.id === loan.customer_id) : null;
-            document.getElementById('filtered-loan-id').innerText = `#${currentLoanFilter.slice(0,8)}`;
+            document.getElementById('filtered-loan-id').innerText = `#${currentLoanFilter.slice(0, 8)}`;
             document.getElementById('filtered-client-name').innerText = client ? client.full_name : 'Desconocido';
             filterInfo.classList.remove('hidden');
         } else {
@@ -504,10 +505,10 @@ function renderCalendar() {
         const isPaid = inst.status === 'PAGADO';
         const isTransferred = inst.status === 'TRANSFERIDO';
         const color = isPaid ? '#1BC5BD' : (isTransferred ? '#94a3b8' : '#F64E60');
-        
+
         // Normalizar fecha a YYYY-MM-DD para evitar problemas de zona horaria
         const dateOnly = inst.due_date.split('T')[0];
-        
+
         return {
             id: inst.id,
             title: `${inst.client_name} | ${formatMoney(inst.total_due).replace('₲', '').trim()}`,
@@ -522,7 +523,7 @@ function renderCalendar() {
 
     console.log(`Rendering ${events.length} events in calendar`);
 
-    if(!calendarInstance) {
+    if (!calendarInstance) {
         calendarInstance = new FullCalendar.Calendar(calendarEl, {
             initialView: 'dayGridMonth',
             locale: 'es',
@@ -534,9 +535,16 @@ function renderCalendar() {
             displayEventTime: false,
             eventClick: info => {
                 const props = info.event.extendedProps;
-                if(props.status === 'PENDIENTE' || props.status === 'ATRASADO') {
-                    openPaymentModal(props.id, props.loan_id, props.client_name, props.total_due);
+                if (props.status === 'PENDIENTE' || props.status === 'ATRASADO') {
+                    const remaining = parseFloat(props.total_due) - parseFloat(props.paid_amount || 0);
+                    openPaymentModal(props.id, props.loan_id, props.client_name, remaining);
                 }
+            },
+            datesSet: info => {
+                const start = info.view.currentStart;
+                document.getElementById('table-month').value = start.getMonth();
+                document.getElementById('table-year').value = start.getFullYear();
+                renderPaymentsTable();
             }
         });
         calendarInstance.render();
@@ -548,29 +556,41 @@ function renderCalendar() {
     }
 }
 
+function syncCalendarAndTable() {
+    const monthVal = document.getElementById('table-month').value;
+    const yearVal = document.getElementById('table-year').value;
+    
+    if (monthVal !== 'todos' && calendarInstance) {
+        const d = new Date(parseInt(yearVal), parseInt(monthVal), 1);
+        calendarInstance.gotoDate(d);
+    }
+    renderPaymentsTable();
+}
+
 function renderPaymentsTable() {
     const container = document.getElementById('payments-table-body');
     const searchEl = document.getElementById('search-payments');
     const term = searchEl ? searchEl.value.toLowerCase() : '';
-    if(!container) return;
-    
+    if (!container) return;
+
     let items = state.installments;
-    
+
     // Filtro por mes/año seleccionado
-    const selectedMonth = parseInt(document.getElementById('table-month').value);
+    const monthVal = document.getElementById('table-month').value;
     const selectedYear = parseInt(document.getElementById('table-year').value);
-    
+
     items = items.filter(inst => {
+        if (monthVal === 'todos') return true;
         const d = new Date(inst.due_date);
-        return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
+        return d.getMonth() === parseInt(monthVal) && d.getFullYear() === selectedYear;
     });
 
     if (currentLoanFilter) items = items.filter(inst => inst.loan_id === currentLoanFilter);
     if (term) items = items.filter(inst => inst.client_name.toLowerCase().includes(term));
 
     container.innerHTML = '';
-    
-    if(items.length === 0) {
+
+    if (items.length === 0) {
         container.innerHTML = `
             <tr>
                 <td colspan="6" class="py-12 bg-white text-center">
@@ -587,9 +607,9 @@ function renderPaymentsTable() {
     items.forEach(inst => {
         const isPaid = inst.status === 'PAGADO';
         const isTransferred = inst.status === 'TRANSFERIDO';
-        const statusClass = isPaid ? 'bg-success/10 text-success border-success/20' : 
-                          (isTransferred ? 'bg-gray-100 text-gray-500' : 'bg-danger/10 text-danger border-danger/20');
-        
+        const statusClass = isPaid ? 'bg-success/10 text-success border-success/20' :
+            (isTransferred ? 'bg-gray-100 text-gray-500' : 'bg-danger/10 text-danger border-danger/20');
+
         container.innerHTML += `
             <tr class="hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0">
                 <td class="px-6 py-4">
@@ -607,9 +627,9 @@ function renderPaymentsTable() {
                 </td>
                 <td class="px-6 py-4 text-center">
                     <div class="flex items-center justify-center gap-2">
-                        <button onclick="filterCalendarByLoan('${inst.loan_id}')" 
+                        <button onclick="openExpedienteModal('${inst.customer_id}')" 
                             class="text-xs bg-gray-100 hover:bg-[#1E1E2D] hover:text-white px-3 py-1.5 rounded-lg transition-all font-medium border border-gray-200">Ver Perfil</button>
-                        ${(inst.status === 'PENDIENTE' || inst.status === 'ATRASADO') ? `<button onclick="openPaymentModal('${inst.id}', '${inst.loan_id}', '${inst.client_name}', ${inst.total_due})" 
+                        ${(inst.status === 'PENDIENTE' || inst.status === 'ATRASADO') ? `<button onclick="openPaymentModal('${inst.id}', '${inst.loan_id}', '${inst.client_name}', ${parseFloat(inst.total_due) - parseFloat(inst.paid_amount || 0)})" 
                             class="text-xs bg-primary text-white hover:bg-orange-600 px-3 py-1.5 rounded-lg transition-all font-bold shadow-sm">Cobrar</button>` : ''}
                     </div>
                 </td>
@@ -647,6 +667,7 @@ async function openExpedienteModal(clientId) {
 
         // Resumen
         const totalPrestado = loans.reduce((sum, l) => sum + parseFloat(l.amount), 0);
+        const totalRecuperado = installments.reduce((sum, i) => sum + parseFloat(i.paid_amount || 0) + parseFloat(i.overpaid_amount || 0), 0);
         const loansCount = loans.length;
         const statusColor = is_moroso ? 'text-danger' : 'text-success';
         const statusText = is_moroso ? 'MOROSO' : 'LIMPIO';
@@ -657,12 +678,18 @@ async function openExpedienteModal(clientId) {
                 <p class="text-lg font-black text-gray-800">${formatMoney(totalPrestado)}</p>
             </div>
             <div class="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                <p class="text-[10px] text-gray-400 uppercase font-bold mb-1">Préstamos Totales</p>
-                <p class="text-lg font-black text-gray-800">${loansCount}</p>
+                <p class="text-[10px] text-gray-400 uppercase font-bold mb-1">Total Recuperado</p>
+                <p class="text-lg font-black text-success">${formatMoney(totalRecuperado)}</p>
             </div>
-            <div class="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                <p class="text-[10px] text-gray-400 uppercase font-bold mb-1">Estado en Registro</p>
-                <p class="text-lg font-black ${statusColor}">${statusText}</p>
+            <div class="bg-gray-50 p-4 rounded-xl border border-gray-100 md:col-span-2 lg:col-span-1 flex flex-row gap-4 items-center justify-between">
+                <div>
+                    <p class="text-[10px] text-gray-400 uppercase font-bold mb-1">Préstamos Totales</p>
+                    <p class="text-lg font-black text-gray-800">${loansCount}</p>
+                </div>
+                <div class="text-right">
+                    <p class="text-[10px] text-gray-400 uppercase font-bold mb-1">Estado</p>
+                    <p class="text-lg font-black ${statusColor}">${statusText}</p>
+                </div>
             </div>
         `;
 
@@ -674,12 +701,12 @@ async function openExpedienteModal(clientId) {
             const lInsts = installments.filter(i => i.loan_id === l.id);
             const pagadas = lInsts.filter(i => i.status === 'PAGADO').length;
             const pendientes = lInsts.filter(i => i.status === 'PENDIENTE' || i.status === 'ATRASADO').length;
-            
+
             const loanEl = document.createElement('div');
             loanEl.className = 'bg-white border border-gray-200 rounded-xl overflow-hidden';
             loanEl.innerHTML = `
                 <div class="bg-gray-50 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
-                    <span class="text-xs font-bold text-gray-500">PRÉSTAMO #${l.id.slice(0,8)} • ${formatDate(l.created_at)}</span>
+                    <span class="text-xs font-bold text-gray-500">PRÉSTAMO #${l.id.slice(0, 8)} • ${formatDate(l.created_at)}</span>
                     <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${l.status === 'FINALIZADO' ? 'bg-success/10 text-success' : 'bg-primary/10 text-primary'}">${l.status}</span>
                 </div>
                 <div class="p-4">
@@ -693,37 +720,47 @@ async function openExpedienteModal(clientId) {
                             <p class="text-sm font-bold text-gray-800">
                                 ${pagadas} / ${l.total_installments}
                                 ${lInsts.length > l.total_installments ? `<span class="text-amber-600 text-[10px] ml-1">(+${lInsts.length - l.total_installments} Ext.)</span>` : ''}
+                        </div>
+                        <div>
+                            <p class="text-[10px] text-gray-400 uppercase font-bold">Monto + Intereses</p>
+                            <p class="text-sm font-bold text-gray-800">
+                                ${formatMoney(parseFloat(l.amount) + parseFloat(l.amount * (l.interest_rate / 100)))}
                             </p>
                         </div>
                     </div>
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
                         ${lInsts.map(i => {
-                            const isPaid = i.status === 'PAGADO';
-                            const isExtended = i.installment_number > l.total_installments;
-                            const isPartial = isPaid && parseFloat(i.paid_amount) < parseFloat(i.total_due);
-                            
-                            let bgColor = 'bg-gray-50 border-gray-200';
-                            let textColor = 'text-gray-500';
-                            let dotColor = 'bg-gray-400';
+                const isPaid = i.status === 'PAGADO';
+                const isExtended = i.installment_number > l.total_installments;
+                const isPartial = isPaid && parseFloat(i.paid_amount) < parseFloat(i.total_due);
 
-                            if (isPaid) {
-                                if (isPartial) {
-                                    bgColor = 'bg-orange-50 border-orange-200';
-                                    textColor = 'text-orange-700';
-                                    dotColor = 'bg-orange-400';
-                                } else {
-                                    bgColor = 'bg-emerald-50 border-emerald-200';
-                                    textColor = 'text-emerald-700';
-                                    dotColor = 'bg-emerald-400';
-                                }
-                            } else if (isExtended) {
-                                bgColor = 'bg-amber-50 border-amber-200';
-                                textColor = 'text-amber-700';
-                                dotColor = 'bg-amber-400';
-                            }
-                            
-                            return `
-                                <div class="p-2 border rounded-lg ${bgColor} text-[10px] flex flex-col gap-1 relative">
+                let bgColor = 'bg-gray-50 border-gray-200';
+                let textColor = 'text-gray-500';
+                let dotColor = 'bg-gray-400';
+
+                if (isPaid) {
+                    if (isPartial) {
+                        bgColor = 'bg-orange-50 border-orange-200';
+                        textColor = 'text-orange-700';
+                        dotColor = 'bg-orange-400';
+                    } else {
+                        bgColor = 'bg-emerald-50 border-emerald-200';
+                        textColor = 'text-emerald-700';
+                        dotColor = 'bg-emerald-400';
+                    }
+                } else if (isExtended) {
+                    bgColor = 'bg-amber-50 border-amber-200';
+                    textColor = 'text-amber-700';
+                    dotColor = 'bg-amber-400';
+                } else if (parseFloat(i.paid_amount || 0) > 0) {
+                    bgColor = 'bg-blue-50 border-blue-200';
+                    textColor = 'text-blue-700';
+                    dotColor = 'bg-blue-400';
+                }
+
+                return `
+                                <div onclick="${!isPaid ? `openPaymentModal('${i.id}', '${l.id}', '${customer.full_name}', ${parseFloat(i.total_due) - parseFloat(i.paid_amount || 0)}); closeModal('modal-expediente');` : ''}"
+                                     class="p-2 border rounded-lg ${bgColor} text-[10px] flex flex-col gap-1 relative ${!isPaid ? 'cursor-pointer hover:border-primary/50 hover:bg-white transition-colors' : ''}">
                                     ${isExtended ? `<span class="absolute -top-2 -right-1 bg-amber-500 text-white text-[7px] px-1 rounded font-black shadow-sm">EXT</span>` : ''}
                                     <div class="flex items-center gap-1.5 font-bold ${textColor}">
                                         <span class="w-1.5 h-1.5 rounded-full ${dotColor}"></span>
@@ -734,13 +771,15 @@ async function openExpedienteModal(clientId) {
                                         <span>${formatDate(i.due_date)}</span>
                                     </div>
                                     <div class="flex justify-between font-bold">
-                                        <span class="text-gray-400">Total:</span>
-                                        <span>₲ ${formatMoney(i.total_due).replace('₲', '').trim()}</span>
+                                        <span class="text-gray-400">${isPaid ? 'Recibido:' : 'Total:'}</span>
+                                        <span>₲ ${formatMoney(isPaid ? (parseFloat(i.paid_amount || 0) + parseFloat(i.overpaid_amount || 0)) : i.total_due).replace('₲', '').trim()}</span>
                                     </div>
-                                    ${isPartial ? `<div class="text-[9px] text-orange-600 font-bold border-t border-orange-100 pt-1 mt-1">Pagó parcial: ${formatMoney(i.paid_amount)}</div>` : ''}
+                                    ${isPartial ? `<div class="text-[9px] text-orange-600 font-bold border-t border-orange-100 pt-1 mt-1">Pagó parcial, debe: ${formatMoney(i.total_due - i.paid_amount)}</div>` : ''}
+                                    ${(!isPaid && parseFloat(i.paid_amount || 0) > 0) ? `<div class="text-[9px] text-blue-600 font-bold border-t border-blue-100 pt-1 mt-1 flex justify-between"><span>Abonado (Adelanto):</span><span>₲ ${formatMoney(i.paid_amount).replace('₲', '').trim()}</span></div>` : ''}
+                                    ${(isPaid && parseFloat(i.overpaid_amount || 0) > 0) ? `<div class="text-[9px] text-emerald-600 font-bold border-t border-emerald-200 pt-1 mt-1 flex justify-between"><span>Excedente arrastrado:</span><span>₲ ${formatMoney(i.overpaid_amount).replace('₲', '').trim()}</span></div>` : ''}
                                 </div>
                             `;
-                        }).join('')}
+            }).join('')}
                     </div>
                 </div>
             `;
@@ -757,12 +796,12 @@ function openClientModal(clientId = null) {
     const hiddenId = document.getElementById('client-id-hidden');
     const title = document.getElementById('modal-cliente-title');
     const form = document.getElementById('form-cliente');
-    
+
     form.reset();
-    
-    if(clientId) {
+
+    if (clientId) {
         const client = state.clients.find(c => c.id === clientId);
-        if(client) {
+        if (client) {
             hiddenId.value = client.id;
             title.innerText = 'Editar Cliente';
             document.getElementById('client-name').value = client.full_name;
@@ -772,23 +811,23 @@ function openClientModal(clientId = null) {
         hiddenId.value = '';
         title.innerText = 'Nuevo Cliente';
     }
-    
+
     openModal('modal-cliente');
 }
 
 function showConfirm(text, onConfirm) {
     document.getElementById('confirm-text').innerText = text;
     const btn = document.getElementById('confirm-btn');
-    
+
     // Clonar para limpiar eventos previos
     const newBtn = btn.cloneNode(true);
     btn.parentNode.replaceChild(newBtn, btn);
-    
+
     newBtn.onclick = () => {
         onConfirm();
         closeModal('modal-confirm');
     };
-    
+
     openModal('modal-confirm');
 }
 
@@ -796,9 +835,9 @@ async function deleteClient(id) {
     showConfirm("¿Estás seguro de eliminar este cliente? Se eliminarán también todos sus préstamos asociados.", async () => {
         try {
             const res = await authFetch(`${API_URL}/customers/${id}`, { method: 'DELETE' });
-            if(!res.ok) throw new Error(await res.text());
+            if (!res.ok) throw new Error(await res.text());
             fetchData();
-        } catch(err) {
+        } catch (err) {
             alert("Error al eliminar: " + err.message);
         }
     });
@@ -814,38 +853,38 @@ function closeModal(id) {
     document.getElementById('modal-overlay').classList.add('hidden');
     document.getElementById(id).classList.add('hidden');
     const form = document.querySelector(`#${id} form`);
-    if(form) form.reset();
+    if (form) form.reset();
 }
 
 async function submitForm(e, type) {
     e.preventDefault();
     const form = e.target;
     const btn = form.querySelector('button[type="submit"]');
-    if(btn) btn.disabled = true;
+    if (btn) btn.disabled = true;
     const formData = new FormData(form);
     const data = Object.fromEntries(formData.entries());
     let endpoint = type === 'cliente' ? '/customers' : (type === 'prestamo' ? '/loans' : '/payments');
-    
+
     // Mapeo específico para prestamos
-    if(type === 'prestamo') {
+    if (type === 'prestamo') {
         data.customer_id = data.client_id;
         data.amount = parseMoney(data.principal);
         data.total_installments = data.installments_count;
     }
-    
+
     // Mapeo específico para clientes
-    if(type === 'cliente') {
+    if (type === 'cliente') {
         data.full_name = data.name;
         // Si hay un ID, es edición
         const id = document.getElementById('client-id-hidden').value;
-        if(id) {
+        if (id) {
             endpoint = `/customers/${id}`;
             const res = await authFetch(`${API_URL}${endpoint}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data)
             });
-            if(!res.ok) throw new Error(await res.text());
+            if (!res.ok) throw new Error(await res.text());
             closeModal(`modal-${type}`);
             fetchData();
             return;
@@ -853,7 +892,7 @@ async function submitForm(e, type) {
     }
 
     // Mapeo específico para pagos
-    if(type === 'pago') {
+    if (type === 'pago') {
         data.installment_id = data.installment_id;
         data.amount = parseMoney(data.amount);
     }
@@ -863,29 +902,29 @@ async function submitForm(e, type) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
-        if(!res.ok) throw new Error(await res.text());
+        if (!res.ok) throw new Error(await res.text());
         closeModal(`modal-${type}`);
         fetchData();
-    } catch(err) {
+    } catch (err) {
         alert("Error: " + err.message);
     } finally {
-        if(btn) btn.disabled = false;
+        if (btn) btn.disabled = false;
     }
 }
 
 function openPaymentModal(inst_id, loan_id, client_name, amount) {
     const elId = document.getElementById('pago-inst-id');
-    if(!elId) return;
+    if (!elId) return;
     elId.value = inst_id;
     document.getElementById('pago-loan-id').value = loan_id;
-    document.getElementById('pago-desc').innerText = `Préstamo #${loan_id.slice(0,8)} - ${client_name}`;
-    
+    document.getElementById('pago-desc').innerText = `Préstamo #${loan_id.slice(0, 8)} - ${client_name}`;
+
     // Formatear monto inicial
     const formattedAmount = new Intl.NumberFormat('es-PY').format(Math.round(amount));
     document.getElementById('pago-amount').value = formattedAmount;
-    
+
     document.getElementById('pago-restante').innerText = formatMoney(amount).replace('₲', '').trim();
-    
+
     // Desglose de saldo anterior vs cuota actual
     const inst = state.installments.find(i => i.id === inst_id);
     const desgloseContainer = document.getElementById('pago-desglose-container');
@@ -927,11 +966,11 @@ async function exportData(type) {
     try {
         const res = await authFetch(`${API_URL}/export/${type}`);
         const data = await res.json();
-        
+
         if (type === 'prestamos') {
             // Cabeceras para el CSV (Excel friendly)
             const headers = ['ID', 'Cliente', 'Monto Original', 'Tasa (%)', 'Frecuencia', 'Cuotas Totales', 'Estado', 'Fecha Creación'];
-            
+
             const rows = data.map(l => {
                 const client = state.clients.find(c => c.id === l.customer_id);
                 return [
@@ -945,7 +984,7 @@ async function exportData(type) {
                     formatDate(l.created_at)
                 ].map(val => `"${val}"`).join(';');
             });
-            
+
             const csvContent = "\uFEFF" + headers.join(';') + "\n" + rows.join('\n');
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
             const url = window.URL.createObjectURL(blob);
