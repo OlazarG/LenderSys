@@ -437,6 +437,20 @@ app.get('/api/export/:type', async (req, res) => {
     }
 });
 
-app.listen(port, () => {
-    console.log(`Server running on port ${port}`);
+// Auto-migración al arrancar: garantiza que las columnas nuevas existan
+async function runMigrations() {
+    try {
+        await pool.query("ALTER TABLE installments ADD COLUMN IF NOT EXISTS overpaid_amount DECIMAL(12,2) DEFAULT 0.00;");
+        console.log('[Migration] overpaid_amount OK');
+        await pool.query("ALTER TABLE installments ADD COLUMN IF NOT EXISTS paid_amount DECIMAL(12,2) DEFAULT 0.00;");
+        console.log('[Migration] paid_amount OK');
+    } catch (err) {
+        console.error('[Migration] Error:', err.message);
+    }
+}
+
+runMigrations().then(() => {
+    app.listen(port, () => {
+        console.log(`Server running on port ${port}`);
+    });
 });

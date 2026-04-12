@@ -559,7 +559,7 @@ function renderCalendar() {
 function syncCalendarAndTable() {
     const monthVal = document.getElementById('table-month').value;
     const yearVal = document.getElementById('table-year').value;
-    
+
     if (monthVal !== 'todos' && calendarInstance) {
         const d = new Date(parseInt(yearVal), parseInt(monthVal), 1);
         calendarInstance.gotoDate(d);
@@ -667,7 +667,7 @@ async function openExpedienteModal(clientId) {
 
         // Resumen
         const totalPrestado = loans.reduce((sum, l) => sum + parseFloat(l.amount), 0);
-        const totalRecuperado = installments.reduce((sum, i) => sum + parseFloat(i.paid_amount || 0) + parseFloat(i.overpaid_amount || 0), 0);
+        const totalRecuperado = installments.reduce((sum, i) => sum + parseFloat(i.paid_amount || 0), 0);
         const loansCount = loans.length;
         const statusColor = is_moroso ? 'text-danger' : 'text-success';
         const statusText = is_moroso ? 'MOROSO' : 'LIMPIO';
