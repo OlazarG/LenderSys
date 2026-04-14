@@ -108,11 +108,12 @@ async function authFetch(url, options = {}) {
 }
 
 // State global
-let state = { clients: [], loans: [], installments: [], currentExpedienteId: null };
+let state = { clients: [], loans: [], installments: [], currentExpedienteId: null, lastDashData: null };
 
 let chartInstance = null;
 let calendarInstance = null;
 let currentLoanFilter = null;
+let currentView = 'dashboard';
 
 // Utilities
 const formatMoney = (amount) => {
@@ -215,6 +216,7 @@ function updateLoanCalculations() {
 }
 
 function switchView(viewName, btnObj, preserveFilter = false) {
+    currentView = viewName;
     document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden-view'));
     document.querySelectorAll('.nav-btn:not(.bottom-btn)').forEach(el => el.classList.remove('nav-item-active'));
     document.querySelectorAll('.bottom-btn').forEach(el => el.classList.remove('bottom-nav-active'));
@@ -234,6 +236,12 @@ function switchView(viewName, btnObj, preserveFilter = false) {
     if (viewName === 'calendario') {
         renderCalendar();
         renderPaymentsTable();
+    } else if (viewName === 'clientes') {
+        renderClientsList();
+    } else if (viewName === 'prestamos') {
+        renderLoansList();
+    } else if (viewName === 'dashboard') {
+        renderDashboard();
     }
 }
 
@@ -253,6 +261,7 @@ async function fetchData() {
         renderClientsList();
         renderLoansList();
         renderDashboard(resDash);
+        state.lastDashData = resDash;
         renderCalendar();
         renderPaymentsTable();
 
@@ -282,7 +291,7 @@ async function fetchData() {
 }
 
 function renderDashboard(data) {
-    if (!data) data = {};
+    if (!data) data = state.lastDashData || {};
     const kpis = {
         'dash-prestado': data.total_prestado,
         'dash-recuperado': data.total_recuperado,
@@ -313,20 +322,29 @@ function renderDashboard(data) {
         }
     });
 
+    const term = document.getElementById('search-dashboard')?.value.toLowerCase() || '';
+    let filteredUpcoming = upcoming;
+    if (term) {
+        filteredUpcoming = upcoming.filter(i => 
+            i.client_name.toLowerCase().includes(term) || 
+            i.loan_id.slice(0, 8).toLowerCase().includes(term)
+        );
+    }
+
     const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
     setVal('dash-hoy-esperado', formatMoney(hoyEsperado));
     setVal('dash-hoy-count', hoyCount);
     setVal('dash-pend-count', pendCount);
     setVal('dash-venc-count', vencCount);
 
-    upcoming.sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
+    filteredUpcoming.sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
     const mList = document.getElementById('list-upcoming');
     if (mList) {
         mList.innerHTML = '';
-        if (upcoming.length === 0) {
-            mList.innerHTML = '<li class="py-2 text-sm text-gray-500">No hay pagos próximos.</li>';
+        if (filteredUpcoming.length === 0) {
+            mList.innerHTML = '<li class="py-2 text-sm text-gray-500">No se encontraron pagos próximos.</li>';
         } else {
-            upcoming.slice(0, 5).forEach(inst => {
+            filteredUpcoming.slice(0, 5).forEach(inst => {
                 const isLate = inst.due_date < todayStr;
                 let color = isLate ? 'text-danger' : 'text-primary';
                 mList.innerHTML += `
@@ -435,7 +453,20 @@ function renderLoansList() {
         container.innerHTML = '<p class="text-gray-500 col-span-full text-center py-8">No hay préstamos registrados</p>';
         return;
     }
-    state.loans.forEach(l => {
+
+    const term = document.getElementById('search-loans')?.value.toLowerCase() || '';
+    const filtered = state.loans.filter(l => {
+        const client = state.clients.find(c => c.id === l.customer_id);
+        const name = client ? client.full_name.toLowerCase() : '';
+        return name.includes(term) || l.id.slice(0, 8).toLowerCase().includes(term);
+    });
+
+    if (filtered.length === 0) {
+        container.innerHTML = '<p class="text-gray-500 col-span-full text-center py-8">No se encontraron préstamos.</p>';
+        return;
+    }
+
+    filtered.forEach(l => {
         const client = state.clients.find(c => c.id === l.customer_id);
         const clientName = client ? client.full_name : 'Desconocido';
 
@@ -660,8 +691,25 @@ function renderPaymentsTable() {
 
 function filterCalendarByLoan(loanId) {
     currentLoanFilter = loanId;
+    
+    // Encontrar la fecha de la primera cuota para este préstamo
+    const loanInsts = state.installments.filter(inst => inst.loan_id === loanId);
+    let targetDate = null;
+    if (loanInsts.length > 0) {
+        // Ordenar por fecha para asegurar que sea la primera
+        loanInsts.sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
+        targetDate = loanInsts[0].due_date;
+    }
+
     switchView('calendario', document.querySelector('[onclick*="calendario"]'), true);
     renderCalendar();
+
+    // Si encontramos una cuota, mover el calendario a ese mes
+    if (targetDate && calendarInstance) {
+        calendarInstance.gotoDate(targetDate);
+        // FullCalendar disparará datesSet, que sincroniza los selectores y la tabla
+    }
+
     renderPaymentsTable();
 }
 
@@ -749,6 +797,14 @@ async function renderExpedienteUI(clientId) {
                             <div>
                                 <p class="text-[10px] text-gray-400 uppercase font-bold">Cuotas</p>
                                 <p class="text-sm font-bold text-gray-800">${pagadas} / ${l.total_installments}</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] text-gray-400 uppercase font-bold">Frecuencia</p>
+                                <p class="text-[11px] font-black text-primary bg-primary/5 px-2 py-0.5 rounded-lg border border-primary/10 inline-block mt-0.5">${l.frequency}</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] text-gray-400 uppercase font-bold">Estado</p>
+                                <p class="text-[11px] font-black ${l.status === 'FINALIZADO' ? 'text-success bg-success/5 border-success/10' : (l.status === 'MOROSO' ? 'text-danger bg-danger/5 border-danger/10' : 'text-blue-600 bg-blue-50 border-blue-100')} px-2 py-0.5 rounded-lg border inline-block mt-0.5">${l.status}</p>
                             </div>
                             <div>
                                 <p class="text-[10px] text-gray-400 uppercase font-bold">Total a Pagar</p>

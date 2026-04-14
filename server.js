@@ -272,7 +272,7 @@ app.get('/api/installments/id/:id', async (req, res) => {
 
 // Función Simplificada: Solo verifica la cuota actual y la SIGUIENTE
 async function updateInstallmentStep(client, loanId, installmentId) {
-    console.log(`[StepUpdate] Updating installment ${installmentId} for loan ${loanId}...`);
+    console.log(`[ChainUpdate] Recalculating loan ${loanId} starting from ${installmentId}...`);
     const startTime = Date.now();
 
     // 1. Obtener todas las cuotas del préstamo ordenadas
@@ -281,69 +281,52 @@ async function updateInstallmentStep(client, loanId, installmentId) {
         [loanId]
     );
     const installments = instRes.rows;
-    const currentIndex = installments.findIndex(i => i.id === installmentId);
+    const startIndex = installments.findIndex(i => i.id === installmentId);
     
-    if (currentIndex === -1) return;
+    if (startIndex === -1) return;
 
-    // 2. Procesar la cuota ACTUAL
-    const inst = installments[currentIndex];
-    const originalAmount = parseFloat(inst.original_amount);
-    const manualPayment = parseFloat(inst.direct_payment || 0);
-    const carriedOver = parseFloat(inst.carried_over_amount || 0);
-    
-    const totalDue = originalAmount + carriedOver;
-    let paidAmount = 0;
-    let balanceForward = 0; 
-    let debtForward = 0;
+    let currentDebtForward = 0;
+    let currentBalanceForward = 0;
 
-    if (manualPayment >= totalDue) {
-        paidAmount = totalDue;
-        balanceForward = manualPayment - totalDue;
-    } else {
-        paidAmount = manualPayment;
-        debtForward = totalDue - manualPayment;
-    }
-
-    // Umbral de 1 Gs
-    if (balanceForward < 1) balanceForward = 0;
-    if (debtForward < 1) debtForward = 0;
-
-    const isPaid = (totalDue > 0 && (totalDue - paidAmount) < 1) || (totalDue === 0 && manualPayment >= 1);
-    const status = isPaid ? 'PAGADO' : 'PENDIENTE';
-
-    await client.query(`
-        UPDATE installments 
-        SET paid_amount = $1,
-            overpaid_amount = $2,
-            status = $3
-        WHERE id = $4
-    `, [paidAmount, balanceForward, status, inst.id]);
-
-    // 3. Procesar SOLO la cuota SIGUIENTE (si existe)
-    const nextInst = installments[currentIndex + 1];
-    if (nextInst) {
-        const newCarriedOver = debtForward > 0 ? debtForward : (balanceForward > 0 ? -balanceForward : 0);
+    // 2. Procesar en CASCADA desde la cuota afectada hasta el final
+    for (let i = startIndex; i < installments.length; i++) {
+        const inst = installments[i];
         
-        // Calcular para la SIGUIENTE cuota su nuevo estado basado en el arrastre
-        const nOriginal = parseFloat(nextInst.original_amount);
-        const nManual = parseFloat(nextInst.direct_payment || 0);
-        const nTotalDue = nOriginal + newCarriedOver;
-        
-        let nPaid = 0;
-        let nOverpaid = 0;
-        if (nManual >= nTotalDue) {
-            nPaid = nTotalDue;
-            nOverpaid = nManual - nTotalDue;
+        // Determinar qué llega a esta cuota
+        let arrivingCarriedOver = 0;
+        if (i === startIndex) {
+            // La primera de la cadena usa su valor actual (que debió ser seteado por la anterior o al crearla)
+            arrivingCarriedOver = parseFloat(inst.carried_over_amount || 0);
         } else {
-            nPaid = nManual;
+            // Las siguientes usan el resultado de la iteración anterior
+            arrivingCarriedOver = currentDebtForward > 0 ? currentDebtForward : (currentBalanceForward > 0 ? -currentBalanceForward : 0);
         }
 
-        // Determinar excedente aplicado (para la UI)
-        const nSurplusApplied = newCarriedOver < 0 ? Math.abs(newCarriedOver) : 0;
+        const originalAmount = parseFloat(inst.original_amount);
+        const manualPayment = parseFloat(inst.direct_payment || 0);
+        const totalDue = originalAmount + (arrivingCarriedOver > 0 ? arrivingCarriedOver : 0);
+        const availableMoney = manualPayment + (arrivingCarriedOver < 0 ? Math.abs(arrivingCarriedOver) : 0);
         
-        const nIsPaid = (nTotalDue > 0 && (nTotalDue - nPaid) < 1) || (nTotalDue === 0 && nManual >= 1);
-        const nStatus = nIsPaid ? 'PAGADO' : 'PENDIENTE';
-        
+        let paidAmount = 0;
+        let nextBalanceForward = 0;
+        let nextDebtForward = 0;
+
+        if (availableMoney >= totalDue) {
+            paidAmount = totalDue;
+            nextBalanceForward = availableMoney - totalDue;
+        } else {
+            paidAmount = availableMoney;
+            nextDebtForward = totalDue - availableMoney;
+        }
+
+        // Umbral de 1 Gs para evitar decimales molestos o basura flotante
+        if (nextBalanceForward < 1) nextBalanceForward = 0;
+        if (nextDebtForward < 1) nextDebtForward = 0;
+
+        const isPaid = (totalDue > 0 && (totalDue - paidAmount) < 1) || (totalDue === 0 && availableMoney >= 1);
+        const status = isPaid ? 'PAGADO' : 'PENDIENTE';
+        const surplusApplied = arrivingCarriedOver < 0 ? Math.abs(arrivingCarriedOver) : 0;
+
         await client.query(`
             UPDATE installments 
             SET carried_over_amount = $1,
@@ -352,33 +335,52 @@ async function updateInstallmentStep(client, loanId, installmentId) {
                 surplus_applied = $4,
                 status = $5
             WHERE id = $6
-        `, [newCarriedOver, nPaid, nOverpaid, nSurplusApplied, nStatus, nextInst.id]);
-    } else if (debtForward >= 1) {
-        // Extensión si es la última y sobra deuda
-        const loanRes = await client.query("SELECT frequency FROM loans WHERE id = $1", [loanId]);
-        const frequency = loanRes.rows[0].frequency;
-        
-        let nextNumber = inst.installment_number + 1;
-        let nextDate = new Date(inst.due_date);
-        if (frequency === 'MENSUAL') nextDate.setMonth(nextDate.getMonth() + 1);
-        else if (frequency === 'QUINCENAL') nextDate.setDate(nextDate.getDate() + 15);
-        else nextDate.setDate(nextDate.getDate() + 7);
+        `, [arrivingCarriedOver, paidAmount, nextBalanceForward, surplusApplied, status, inst.id]);
 
-        await client.query(
-            "INSERT INTO installments (loan_id, installment_number, due_date, original_amount, carried_over_amount, status) VALUES ($1, $2, $3, $4, $5, $6)",
-            [loanId, nextNumber, nextDate.toISOString(), 0, debtForward, 'PENDIENTE']
-        );
+        // Guardar para la siguiente iteración
+        currentDebtForward = nextDebtForward;
+        currentBalanceForward = nextBalanceForward;
+
+        // 3. Extensión si es la última y sobra deuda
+        if (i === installments.length - 1 && currentDebtForward >= 1) {
+            const loanRes = await client.query("SELECT frequency FROM loans WHERE id = $1", [loanId]);
+            const frequency = loanRes.rows[0].frequency;
+            
+            let nextNumber = inst.installment_number + 1;
+            let nextDate = new Date(inst.due_date);
+            if (frequency === 'MENSUAL') nextDate.setMonth(nextDate.getMonth() + 1);
+            else if (frequency === 'QUINCENAL') nextDate.setDate(nextDate.getDate() + 15);
+            else nextDate.setDate(nextDate.getDate() + 7);
+
+            const inserted = await client.query(
+                "INSERT INTO installments (loan_id, installment_number, due_date, original_amount, carried_over_amount, status) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+                [loanId, nextNumber, nextDate.toISOString(), 0, currentDebtForward, 'PENDIENTE']
+            );
+            
+            // Re-lanzamos la cadena desde la nueva cuota para procesarla (esto ocurrirá una sola vez por paso)
+            await updateInstallmentStep(client, loanId, inserted.rows[0].id);
+            break; // Salimos del bucle actual ya que la recursión manejará el resto
+        }
     }
 
-    // 4. Actualizar Estado Global del Préstamo
-    const pendingRes = await client.query(
-        "SELECT COUNT(*) FROM installments WHERE loan_id = $1 AND status != 'PAGADO'",
-        [loanId]
-    );
-    const loanStatus = parseInt(pendingRes.rows[0].count) === 0 ? 'FINALIZADO' : 'ACTIVO';
+    // 4. Actualizar Estado Global del Préstamo (FINALIZADO / MOROSO / ACTIVO)
+    const allInstsRes = await client.query("SELECT status, due_date FROM installments WHERE loan_id = $1", [loanId]);
+    const allInsts = allInstsRes.rows;
+    
+    const pending = allInsts.filter(i => i.status !== 'PAGADO');
+    
+    let loanStatus = 'ACTIVO';
+    if (pending.length === 0) {
+        loanStatus = 'FINALIZADO';
+    } else {
+        const today = new Date().toISOString().split('T')[0];
+        const hasMora = pending.some(i => i.due_date < today);
+        if (hasMora) loanStatus = 'MOROSO';
+    }
+
     await client.query("UPDATE loans SET status = $1 WHERE id = $2", [loanStatus, loanId]);
 
-    console.log(`[StepUpdate] Completed in ${Date.now() - startTime}ms`);
+    console.log(`[ChainUpdate] Completed in ${Date.now() - startTime}ms`);
 }
 
 
