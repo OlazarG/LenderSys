@@ -295,6 +295,44 @@
             <!-- VISTA: DASHBOARD -->
             <section id="view-dashboard" class="view-section h-full flex flex-col gap-6">
                 <!-- Status Cards -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center">
+                        <div class="w-12 h-12 rounded-lg bg-info/10 text-info flex items-center justify-center mr-4 text-xl">
+                            <i class="fas fa-hand-holding-usd"></i>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total Prestado</p>
+                            <h3 class="text-xl font-black text-gray-800" id="dash-prestado">₲ 0</h3>
+                        </div>
+                    </div>
+                    <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center">
+                        <div class="w-12 h-12 rounded-lg bg-success/10 text-success flex items-center justify-center mr-4 text-xl">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total Recuperado</p>
+                            <h3 class="text-xl font-black text-gray-800" id="dash-recuperado">₲ 0</h3>
+                        </div>
+                    </div>
+                    <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center">
+                        <div class="w-12 h-12 rounded-lg bg-danger/10 text-danger flex items-center justify-center mr-4 text-xl">
+                            <i class="fas fa-exclamation-circle"></i>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total en Mora</p>
+                            <h3 class="text-xl font-black text-gray-800" id="dash-mora">₲ 0</h3>
+                        </div>
+                    </div>
+                    <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center">
+                        <div class="w-12 h-12 rounded-lg bg-warning/10 text-warning flex items-center justify-center mr-4 text-xl">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total a Recuperar</p>
+                            <h3 class="text-xl font-black text-gray-800" id="dash-a-recuperar">₲ 0</h3>
+                        </div>
+                    </div>
+                </div>
 
 
                 <!-- Middle Section: Chart & active balance -->
@@ -705,7 +743,7 @@
     <div id="modal-pago" class="fixed inset-0 hidden z-50 flex items-center justify-center p-4 pointer-events-none">
         <div class="pointer-events-auto bg-white w-full max-w-sm rounded-2xl shadow-xl overflow-hidden">
             <div class="bg-gray-50 px-6 py-4 border-b border-gray-100 flex justify-between items-center">
-                <h3 class="text-lg font-bold text-gray-800">Registrar Pago</h3>
+                <h3 class="text-lg font-bold text-gray-800" id="modal-pago-title">Registrar Pago</h3>
                 <button onclick="closeModal('modal-pago')"
                     class="text-gray-400 hover:text-gray-600 text-xl font-bold">&times;</button>
             </div>
@@ -771,7 +809,7 @@
         </div>
     </div>
 
-    <!-- Modal Confirmación Personalizado -->
+    <!-- Termina Modal Pago -->
     <div id="modal-confirm" class="fixed inset-0 hidden z-[100] flex items-center justify-center p-4">
         <div class="bg-white w-full max-w-xs rounded-2xl shadow-2xl overflow-hidden p-6 text-center border border-gray-100">
             <div class="w-16 h-16 bg-danger/10 text-danger rounded-full flex items-center justify-center mx-auto mb-4">

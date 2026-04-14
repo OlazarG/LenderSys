@@ -43,6 +43,7 @@ function handleLogout() {
     authToken = null;
     localStorage.removeItem('token');
     localStorage.removeItem('username');
+    state = { clients: [], loans: [], installments: [], currentExpedienteId: null };
     document.getElementById('app-container').classList.add('hidden-view');
     document.getElementById('login-container').classList.remove('hidden');
 }
@@ -99,15 +100,15 @@ async function authFetch(url, options = {}) {
         handleLogout();
         throw new Error('Sesión no autorizada o expirada.');
     }
+    if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `Error del servidor (${res.status})`);
+    }
     return res;
 }
 
 // State global
-let state = {
-    clients: [],
-    loans: [],
-    installments: []
-};
+let state = { clients: [], loans: [], installments: [], currentExpedienteId: null };
 
 let chartInstance = null;
 let calendarInstance = null;
@@ -177,16 +178,16 @@ function checkAuthAndInit() {
             });
         }
 
-        // Separador de miles en vivo para el pago
-        const pagoAmountInput = document.getElementById('pago-amount');
-        if (pagoAmountInput) {
-            pagoAmountInput.addEventListener('input', (e) => {
-                let value = e.target.value.replace(/\D/g, "");
-                if (value) {
-                    e.target.value = new Intl.NumberFormat('es-PY').format(value);
-                }
-            });
-        }
+        // Separadores para modal edición (nueva funcionalidad)
+        ['edit-inst-original', 'edit-inst-carried', 'edit-inst-paid', 'edit-inst-overpaid'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.addEventListener('input', (e) => {
+                    let value = e.target.value.replace(/\D/g, "");
+                    if (value) { e.target.value = new Intl.NumberFormat('es-PY').format(value); }
+                });
+            }
+        });
 
         fetchData();
     } else {
@@ -255,6 +256,19 @@ async function fetchData() {
         renderCalendar();
         renderPaymentsTable();
 
+        // Si el expediente estaba abierto, refrescarlo sin cerrarlo
+        if (state.currentExpedienteId) {
+            const clientExists = state.clients.some(c => c.id === state.currentExpedienteId);
+            const modalVisible = !document.getElementById('modal-expediente').classList.contains('hidden');
+            
+            if (clientExists && modalVisible) {
+                renderExpedienteUI(state.currentExpedienteId);
+            } else if (!clientExists) {
+                state.currentExpedienteId = null;
+                closeModal('modal-expediente');
+            }
+        }
+
         const selectClient = document.getElementById('select-client');
         if (selectClient) {
             selectClient.innerHTML = '<option value="" disabled selected>Seleccionar Cliente</option>';
@@ -271,9 +285,9 @@ function renderDashboard(data) {
     if (!data) data = {};
     const kpis = {
         'dash-prestado': data.total_prestado,
-        'dash-intereses': data.total_intereses,
         'dash-recuperado': data.total_recuperado,
-        'dash-mora': data.total_mora
+        'dash-mora': data.total_mora,
+        'dash-a-recuperar': data.total_a_recuperar
     };
     // Nota: El HTML original puede que no tenga todos estos IDs, pero los mapeamos por si acaso
     Object.keys(kpis).forEach(id => {
@@ -537,7 +551,9 @@ function renderCalendar() {
                 const props = info.event.extendedProps;
                 if (props.status === 'PENDIENTE' || props.status === 'ATRASADO') {
                     const remaining = parseFloat(props.total_due) - parseFloat(props.paid_amount || 0);
-                    openPaymentModal(props.id, props.loan_id, props.client_name, remaining);
+                    if (remaining >= 1) {
+                        openPaymentModal(props.id, props.loan_id, props.client_name, remaining);
+                    }
                 }
             },
             datesSet: info => {
@@ -629,8 +645,12 @@ function renderPaymentsTable() {
                     <div class="flex items-center justify-center gap-2">
                         <button onclick="openExpedienteModal('${inst.customer_id}')" 
                             class="text-xs bg-gray-100 hover:bg-[#1E1E2D] hover:text-white px-3 py-1.5 rounded-lg transition-all font-medium border border-gray-200">Ver Perfil</button>
-                        ${(inst.status === 'PENDIENTE' || inst.status === 'ATRASADO') ? `<button onclick="openPaymentModal('${inst.id}', '${inst.loan_id}', '${inst.client_name}', ${parseFloat(inst.total_due) - parseFloat(inst.paid_amount || 0)})" 
+                        ${(inst.status === 'PENDIENTE' || inst.status === 'ATRASADO') && (parseFloat(inst.total_due) - parseFloat(inst.paid_amount || 0)) >= 1 ? `<button onclick="openPaymentModal('${inst.id}', '${inst.loan_id}', '${inst.client_name}', ${parseFloat(inst.total_due) - parseFloat(inst.paid_amount || 0)})" 
                             class="text-xs bg-primary text-white hover:bg-orange-600 px-3 py-1.5 rounded-lg transition-all font-bold shadow-sm">Cobrar</button>` : ''}
+                        <button onclick="openPaymentModal('${inst.id}', '${inst.loan_id}', '${inst.client_name}', ${inst.paid_amount || 0}, true)" 
+                            class="text-xs bg-gray-700 text-white hover:bg-gray-900 px-2 py-1.5 rounded-lg transition-all font-bold opacity-70 hover:opacity-100" title="Corregir Cuota">
+                            <i class="fas fa-edit"></i>
+                        </button>
                     </div>
                 </td>
             </tr>
@@ -657,17 +677,27 @@ function setFullPayment() {
 }
 
 async function openExpedienteModal(clientId) {
+    state.currentExpedienteId = clientId;
+    openModal('modal-expediente');
+    renderExpedienteUI(clientId);
+}
+
+async function renderExpedienteUI(clientId) {
     try {
         const res = await authFetch(`${API_URL}/customers/${clientId}/expediente`);
         const data = await res.json();
         const { customer, loans, installments, is_moroso } = data;
+
+        if (!customer) {
+            throw new Error("No se encontró información del cliente.");
+        }
 
         document.getElementById('exp-client-name').innerText = `Expediente: ${customer.full_name}`;
         document.getElementById('exp-client-id').innerText = `ID: ${customer.id}`;
 
         // Resumen
         const totalPrestado = loans.reduce((sum, l) => sum + parseFloat(l.amount), 0);
-        const totalRecuperado = installments.reduce((sum, i) => sum + parseFloat(i.paid_amount || 0), 0);
+        const totalRecuperado = installments.reduce((sum, i) => sum + (parseFloat(i.paid_amount || 0) + parseFloat(i.overpaid_amount || 0)), 0);
         const loansCount = loans.length;
         const statusColor = is_moroso ? 'text-danger' : 'text-success';
         const statusText = is_moroso ? 'MOROSO' : 'LIMPIO';
@@ -697,42 +727,53 @@ async function openExpedienteModal(clientId) {
         const container = document.getElementById('exp-loans-container');
         container.innerHTML = '';
 
-        loans.forEach(l => {
-            const lInsts = installments.filter(i => i.loan_id === l.id);
-            const pagadas = lInsts.filter(i => i.status === 'PAGADO').length;
-            const pendientes = lInsts.filter(i => i.status === 'PENDIENTE' || i.status === 'ATRASADO').length;
+                loans.forEach(l => {
+                    const lInsts = installments.filter(i => i.loan_id === l.id);
+                    const pagadas = lInsts.filter(i => i.status === 'PAGADO').length;
+                    const loanRecuperado = lInsts.reduce((sum, i) => sum + (parseFloat(i.paid_amount || 0) + parseFloat(i.overpaid_amount || 0)), 0);
 
-            const loanEl = document.createElement('div');
-            loanEl.className = 'bg-white border border-gray-200 rounded-xl overflow-hidden';
-            loanEl.innerHTML = `
+                    const loanEl = document.createElement('div');
+                    loanEl.className = 'bg-white border border-gray-200 rounded-xl overflow-hidden mb-6 last:mb-0';
+                    loanEl.innerHTML = `
                 <div class="bg-gray-50 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
                     <span class="text-xs font-bold text-gray-500">PRÉSTAMO #${l.id.slice(0, 8)} • ${formatDate(l.created_at)}</span>
                     <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${l.status === 'FINALIZADO' ? 'bg-success/10 text-success' : 'bg-primary/10 text-primary'}">${l.status}</span>
                 </div>
                 <div class="p-4">
-                    <div class="flex gap-8 mb-4">
-                        <div>
-                            <p class="text-[10px] text-gray-400 uppercase font-bold">Monto</p>
-                            <p class="text-sm font-bold text-gray-800">${formatMoney(l.amount)}</p>
+                    <div class="flex flex-wrap items-center justify-between gap-4 mb-4 bg-gray-50/50 p-3 rounded-xl border border-dashed border-gray-200">
+                        <div class="flex gap-8">
+                            <div>
+                                <p class="text-[10px] text-gray-400 uppercase font-bold">Monto</p>
+                                <p class="text-sm font-bold text-gray-800">${formatMoney(l.amount)}</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] text-gray-400 uppercase font-bold">Cuotas</p>
+                                <p class="text-sm font-bold text-gray-800">${pagadas} / ${l.total_installments}</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] text-gray-400 uppercase font-bold">Total a Pagar</p>
+                                <p class="text-sm font-bold text-gray-800">${formatMoney(parseFloat(l.amount) + parseFloat(l.amount * (l.interest_rate / 100)))}</p>
+                            </div>
                         </div>
-                        <div>
-                            <p class="text-[10px] text-gray-400 uppercase font-bold">Cuotas</p>
-                            <p class="text-sm font-bold text-gray-800">
-                                ${pagadas} / ${l.total_installments}
-                                ${lInsts.length > l.total_installments ? `<span class="text-amber-600 text-[10px] ml-1">(+${lInsts.length - l.total_installments} Ext.)</span>` : ''}
-                        </div>
-                        <div>
-                            <p class="text-[10px] text-gray-400 uppercase font-bold">Monto + Intereses</p>
-                            <p class="text-sm font-bold text-gray-800">
-                                ${formatMoney(parseFloat(l.amount) + parseFloat(l.amount * (l.interest_rate / 100)))}
-                            </p>
+                        <div class="bg-white px-4 py-2 rounded-lg border border-emerald-100 shadow-sm flex flex-col items-end">
+                            <p class="text-[9px] text-emerald-500 uppercase font-black tracking-wider">Total Recuperado</p>
+                            <p class="text-base font-black text-emerald-600">${formatMoney(loanRecuperado)}</p>
                         </div>
                     </div>
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                         ${lInsts.map(i => {
                 const isPaid = i.status === 'PAGADO';
                 const isExtended = i.installment_number > l.total_installments;
-                const isPartial = isPaid && parseFloat(i.paid_amount) < parseFloat(i.total_due);
+                // Usar umbral de 1 para evitar errores de coma flotante
+                const isPartial = isPaid && (parseFloat(i.total_due) - parseFloat(i.paid_amount)) >= 1;
+
+                const lastRecNum = lInsts
+                    .filter(inst => parseFloat(inst.direct_payment || 0) > 0)
+                    .reduce((max, inst) => Math.max(max, inst.installment_number), 0);
+
+                const firstEmptyNum = lInsts
+                    .find(inst => inst.status === 'PENDIENTE' && parseFloat(inst.direct_payment || 0) < 1)
+                    ?.installment_number || 999;
 
                 let bgColor = 'bg-gray-50 border-gray-200';
                 let textColor = 'text-gray-500';
@@ -758,39 +799,53 @@ async function openExpedienteModal(clientId) {
                     dotColor = 'bg-blue-400';
                 }
 
-                return `
-                                <div onclick="${!isPaid ? `openPaymentModal('${i.id}', '${l.id}', '${customer.full_name}', ${parseFloat(i.total_due) - parseFloat(i.paid_amount || 0)}); closeModal('modal-expediente');` : ''}"
-                                     class="p-2 border rounded-lg ${bgColor} text-[10px] flex flex-col gap-1 relative ${!isPaid ? 'cursor-pointer hover:border-primary/50 hover:bg-white transition-colors' : ''}">
-                                    ${isExtended ? `<span class="absolute -top-2 -right-1 bg-amber-500 text-white text-[7px] px-1 rounded font-black shadow-sm">EXT</span>` : ''}
-                                    <div class="flex items-center gap-1.5 font-bold ${textColor}">
-                                        <span class="w-1.5 h-1.5 rounded-full ${dotColor}"></span>
-                                        Cuota ${i.installment_number}
-                                    </div>
-                                    <div class="flex justify-between font-medium">
-                                        <span class="text-gray-400">Vence:</span>
-                                        <span>${formatDate(i.due_date)}</span>
-                                    </div>
-                                    <div class="flex justify-between font-bold">
-                                        <span class="text-gray-400">${isPaid ? 'Recibido:' : 'Total:'}</span>
-                                        <span>₲ ${formatMoney(isPaid ? (parseFloat(i.paid_amount || 0) + parseFloat(i.overpaid_amount || 0)) : i.total_due).replace('₲', '').trim()}</span>
-                                    </div>
-                                    ${isPartial ? `<div class="text-[9px] text-orange-600 font-bold border-t border-orange-100 pt-1 mt-1">Pagó parcial, debe: ${formatMoney(i.total_due - i.paid_amount)}</div>` : ''}
-                                    ${(!isPaid && parseFloat(i.paid_amount || 0) > 0) ? `<div class="text-[9px] text-blue-600 font-bold border-t border-blue-100 pt-1 mt-1 flex justify-between"><span>Abonado (Adelanto):</span><span>₲ ${formatMoney(i.paid_amount).replace('₲', '').trim()}</span></div>` : ''}
-                                    ${(isPaid && parseFloat(i.overpaid_amount || 0) > 0) ? `<div class="text-[9px] text-emerald-600 font-bold border-t border-emerald-200 pt-1 mt-1 flex justify-between"><span>Excedente arrastrado:</span><span>₲ ${formatMoney(i.overpaid_amount).replace('₲', '').trim()}</span></div>` : ''}
-                                </div>
-                            `;
-            }).join('')}
+                // El Neto es simplemente el total_due, que ya incluye excedentes y deudas arrastradas
+                const netTotal = parseFloat(i.total_due);
+
+    const isLatestWithMoney = i.installment_number === lastRecNum;
+    const isNextEmpty = i.installment_number === firstEmptyNum;
+    const canInteract = isLatestWithMoney || isNextEmpty;
+    const isEditMode = isLatestWithMoney;
+
+    return `
+        <div onclick="${canInteract ? `openPaymentModal('${i.id}', '${l.id}', '${customer.full_name}', ${isEditMode ? (i.direct_payment || 0) : netTotal}, ${isEditMode})` : ''}"
+             class="p-2 border rounded-lg ${bgColor} text-[10px] flex flex-col gap-1 relative ${canInteract ? 'cursor-pointer hover:border-primary/50 hover:bg-white transition-colors' : 'opacity-60 cursor-not-allowed'} group">
+            ${isExtended ? `<span class="absolute -top-2 -right-1 bg-amber-500 text-white text-[7px] px-1 rounded font-black shadow-sm">EXT</span>` : ''}
+
+            <div class="flex items-center gap-1.5 font-bold ${textColor}">
+                <span class="w-1.5 h-1.5 rounded-full ${dotColor}"></span>
+                Cuota ${i.installment_number}
+            </div>
+            <div class="flex justify-between font-medium">
+                <span class="text-gray-400">Vence:</span>
+                <span class="text-gray-800">${formatDate(i.due_date)}</span>
+            </div>
+            <div class="flex justify-between font-bold border-t border-gray-100 mt-1 pt-1">
+                <span class="text-gray-400">${isPaid ? 'Recibido:' : 'Total a Pagar:'}</span>
+                <span class="text-gray-900">${formatMoney(isPaid ? (parseFloat(i.paid_amount || 0) + parseFloat(i.overpaid_amount || 0)) : netTotal)}</span>
+            </div>
+
+            ${isPartial ? `<div class="text-[9px] text-orange-600 font-bold border-t border-orange-100 pt-1 mt-1">⚠️ Pagó parcial, restan: ${formatMoney(parseFloat(i.total_due) - parseFloat(i.paid_amount))}</div>` : ''}
+
+            ${(!isPaid && parseFloat(i.paid_amount || 0) > 0) ? `<div class="text-[9px] text-blue-600 font-bold border-t border-blue-100 pt-1 mt-1 flex flex-col gap-0.5"><div class="flex justify-between"><span>Abonado:</span><span>${formatMoney(i.paid_amount)}</span></div><div class="flex justify-between text-orange-600"><span>Resta:</span><span>${formatMoney(netTotal - parseFloat(i.paid_amount))}</span></div></div>` : ''}
+
+            ${parseFloat(i.carried_over_amount || 0) > 0 ? `<div class="text-[9px] text-red-600 font-bold border-t border-red-100 pt-1 mt-1 flex justify-between"><span>⬆️ Deuda Arrastrada:</span><span>+${formatMoney(i.carried_over_amount)}</span></div>` : ''}
+
+            ${parseFloat(i.surplus_applied || 0) > 0 ? `<div class="text-[9px] text-emerald-600 font-bold border-t border-emerald-100 pt-1 mt-1 flex justify-between"><span>✨ Excedente Aplicado:</span><span>-${formatMoney(i.surplus_applied)}</span></div>` : ''}
+
+            ${(isPaid && parseFloat(i.overpaid_amount || 0) > 0) ? `<div class="text-[9px] text-emerald-700 font-bold border-t border-emerald-200 pt-1 mt-1 flex justify-between bg-emerald-100/50 p-1 rounded"><span>💰 Saldo a Favor:</span><span>${formatMoney(i.overpaid_amount)}</span></div>` : ''}
+        </div>
+    `;
+                        }).join('')}
                     </div>
                 </div>
             `;
-            container.appendChild(loanEl);
-        });
-
-        openModal('modal-expediente');
-    } catch (err) {
-        alert("Error cargando expediente: " + err.message);
+                container.appendChild(loanEl);
+            });
+        } catch (err) {
+            alert("Error cargando expediente: " + err.message);
+        }
     }
-}
 
 function openClientModal(clientId = null) {
     const hiddenId = document.getElementById('client-id-hidden');
@@ -835,7 +890,6 @@ async function deleteClient(id) {
     showConfirm("¿Estás seguro de eliminar este cliente? Se eliminarán también todos sus préstamos asociados.", async () => {
         try {
             const res = await authFetch(`${API_URL}/customers/${id}`, { method: 'DELETE' });
-            if (!res.ok) throw new Error(await res.text());
             fetchData();
         } catch (err) {
             alert("Error al eliminar: " + err.message);
@@ -854,6 +908,10 @@ function closeModal(id) {
     document.getElementById(id).classList.add('hidden');
     const form = document.querySelector(`#${id} form`);
     if (form) form.reset();
+
+    if (id === 'modal-expediente') {
+        state.currentExpedienteId = null;
+    }
 }
 
 async function submitForm(e, type) {
@@ -875,18 +933,22 @@ async function submitForm(e, type) {
     // Mapeo específico para clientes
     if (type === 'cliente') {
         data.full_name = data.name;
-        // Si hay un ID, es edición
         const id = document.getElementById('client-id-hidden').value;
         if (id) {
             endpoint = `/customers/${id}`;
-            const res = await authFetch(`${API_URL}${endpoint}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
-            if (!res.ok) throw new Error(await res.text());
-            closeModal(`modal-${type}`);
-            fetchData();
+            try {
+                await authFetch(`${API_URL}${endpoint}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                closeModal(`modal-${type}`);
+                fetchData();
+            } catch (err) {
+                alert("Error: " + err.message);
+            } finally {
+                if (btn) btn.disabled = false;
+            }
             return;
         }
     }
@@ -895,14 +957,34 @@ async function submitForm(e, type) {
     if (type === 'pago') {
         data.installment_id = data.installment_id;
         data.amount = parseMoney(data.amount);
+
+        // Si es edición, cambiar método y endpoint a PUT /api/installments/:id
+        if (form.dataset.mode === 'edit') {
+            const id = data.installment_id;
+            try {
+                // Solo mandamos el nuevo monto directo — el backend recalcula todo
+                await authFetch(`${API_URL}/installments/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ paid_amount: data.amount })
+                });
+                closeModal('modal-pago');
+                fetchData();
+            } catch (err) {
+                alert("Error al corregir la cuota: " + err.message);
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+            return;
+        }
     }
+
     try {
-        const res = await authFetch(`${API_URL}${endpoint}`, {
+        await authFetch(`${API_URL}${endpoint}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
-        if (!res.ok) throw new Error(await res.text());
         closeModal(`modal-${type}`);
         fetchData();
     } catch (err) {
@@ -912,12 +994,14 @@ async function submitForm(e, type) {
     }
 }
 
-function openPaymentModal(inst_id, loan_id, client_name, amount) {
+function openPaymentModal(inst_id, loan_id, client_name, amount, isEdit = false) {
     const elId = document.getElementById('pago-inst-id');
     if (!elId) return;
     elId.value = inst_id;
     document.getElementById('pago-loan-id').value = loan_id;
     document.getElementById('pago-desc').innerText = `Préstamo #${loan_id.slice(0, 8)} - ${client_name}`;
+    document.getElementById('modal-pago-title').innerText = isEdit ? 'Corregir Pago' : 'Registrar Pago';
+    document.getElementById('form-pago').dataset.mode = isEdit ? 'edit' : 'pago';
 
     // Formatear monto inicial
     const formattedAmount = new Intl.NumberFormat('es-PY').format(Math.round(amount));
@@ -937,7 +1021,7 @@ function openPaymentModal(inst_id, loan_id, client_name, amount) {
     }
 
     // Calcular resumen del préstamo
-    const loanInsts = state.installments.filter(inst => inst.loan_id === loan_id);
+    const loanInsts = state.installments.filter(i => i.loan_id === loan_id);
     const pagadas = loanInsts.filter(i => i.status === 'PAGADO').length;
     const pendientes = loanInsts.filter(i => i.status === 'PENDIENTE' || i.status === 'ATRASADO').length;
     const totalDeuda = loanInsts
@@ -968,7 +1052,6 @@ async function exportData(type) {
         const data = await res.json();
 
         if (type === 'prestamos') {
-            // Cabeceras para el CSV (Excel friendly)
             const headers = ['ID', 'Cliente', 'Monto Original', 'Tasa (%)', 'Frecuencia', 'Cuotas Totales', 'Estado', 'Fecha Creación'];
 
             const rows = data.map(l => {
@@ -1000,3 +1083,4 @@ async function exportData(type) {
         alert("Error al exportar los datos");
     }
 }
+

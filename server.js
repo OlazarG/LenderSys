@@ -29,9 +29,32 @@ startCronJob();
 // Endpoint para probar el cron job manualmente (Para testing)
 app.post('/api/trigger-accumulation', async (req, res) => {
     try {
-        await runAccumulation();
-        res.json({ message: 'Accumulation job triggered successfully' });
+        console.log('[Recalculate Global] Triggered manual global recalculation...');
+        const { rows: loans } = await pool.query("SELECT id FROM loans WHERE status = 'ACTIVO' OR status = 'MOROSO'");
+        
+        for (const loan of loans) {
+            const client = await pool.connect();
+            try {
+                // Obtenemos la primera cuota pendiente para refrescarla
+                const firstRes = await client.query(
+                    "SELECT id FROM installments WHERE loan_id = $1 AND status != 'PAGADO' ORDER BY installment_number ASC LIMIT 1",
+                    [loan.id]
+                );
+                if (firstRes.rows.length > 0) {
+                    await client.query('BEGIN');
+                    await updateInstallmentStep(client, loan.id, firstRes.rows[0].id);
+                    await client.query('COMMIT');
+                }
+            } catch (err) {
+                await client.query('ROLLBACK');
+                console.error(`[Recalculate Global] Error on Loan ${loan.id}:`, err.message);
+            } finally {
+                client.release();
+            }
+        }
+        res.json({ message: `Recalculated ${loans.length} active loans successfully.` });
     } catch (error) {
+        console.error('[Recalculate Global] Fatal error:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
@@ -227,135 +250,232 @@ app.get('/api/installments', async (req, res) => {
     }
 });
 
-// POST /api/payments (Registrar pago de cuota con arrastre)
-app.post('/api/payments', async (req, res) => {
-    const { installment_id, amount } = req.body;
-    const client = await pool.connect();
+// GET /api/installments/id/:id
+app.get('/api/installments/id/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const result = await pool.query(`
+            SELECT 
+                i.*, 
+                c.full_name as client_name
+            FROM installments i
+            JOIN loans l ON i.loan_id = l.id
+            JOIN customers c ON l.customer_id = c.id
+            WHERE i.id = $1
+        `, [id]);
+        if (result.rows.length === 0) return res.status(404).json({ error: 'Installment not found' });
+        res.json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Función Simplificada: Solo verifica la cuota actual y la SIGUIENTE
+async function updateInstallmentStep(client, loanId, installmentId) {
+    console.log(`[StepUpdate] Updating installment ${installmentId} for loan ${loanId}...`);
+    const startTime = Date.now();
+
+    // 1. Obtener todas las cuotas del préstamo ordenadas
+    const instRes = await client.query(
+        "SELECT * FROM installments WHERE loan_id = $1 ORDER BY installment_number ASC",
+        [loanId]
+    );
+    const installments = instRes.rows;
+    const currentIndex = installments.findIndex(i => i.id === installmentId);
     
+    if (currentIndex === -1) return;
+
+    // 2. Procesar la cuota ACTUAL
+    const inst = installments[currentIndex];
+    const originalAmount = parseFloat(inst.original_amount);
+    const manualPayment = parseFloat(inst.direct_payment || 0);
+    const carriedOver = parseFloat(inst.carried_over_amount || 0);
+    
+    const totalDue = originalAmount + carriedOver;
+    let paidAmount = 0;
+    let balanceForward = 0; 
+    let debtForward = 0;
+
+    if (manualPayment >= totalDue) {
+        paidAmount = totalDue;
+        balanceForward = manualPayment - totalDue;
+    } else {
+        paidAmount = manualPayment;
+        debtForward = totalDue - manualPayment;
+    }
+
+    // Umbral de 1 Gs
+    if (balanceForward < 1) balanceForward = 0;
+    if (debtForward < 1) debtForward = 0;
+
+    const isPaid = (totalDue > 0 && (totalDue - paidAmount) < 1) || (totalDue === 0 && manualPayment >= 1);
+    const status = isPaid ? 'PAGADO' : 'PENDIENTE';
+
+    await client.query(`
+        UPDATE installments 
+        SET paid_amount = $1,
+            overpaid_amount = $2,
+            status = $3
+        WHERE id = $4
+    `, [paidAmount, balanceForward, status, inst.id]);
+
+    // 3. Procesar SOLO la cuota SIGUIENTE (si existe)
+    const nextInst = installments[currentIndex + 1];
+    if (nextInst) {
+        const newCarriedOver = debtForward > 0 ? debtForward : (balanceForward > 0 ? -balanceForward : 0);
+        
+        // Calcular para la SIGUIENTE cuota su nuevo estado basado en el arrastre
+        const nOriginal = parseFloat(nextInst.original_amount);
+        const nManual = parseFloat(nextInst.direct_payment || 0);
+        const nTotalDue = nOriginal + newCarriedOver;
+        
+        let nPaid = 0;
+        let nOverpaid = 0;
+        if (nManual >= nTotalDue) {
+            nPaid = nTotalDue;
+            nOverpaid = nManual - nTotalDue;
+        } else {
+            nPaid = nManual;
+        }
+
+        // Determinar excedente aplicado (para la UI)
+        const nSurplusApplied = newCarriedOver < 0 ? Math.abs(newCarriedOver) : 0;
+        
+        const nIsPaid = (nTotalDue > 0 && (nTotalDue - nPaid) < 1) || (nTotalDue === 0 && nManual >= 1);
+        const nStatus = nIsPaid ? 'PAGADO' : 'PENDIENTE';
+        
+        await client.query(`
+            UPDATE installments 
+            SET carried_over_amount = $1,
+                paid_amount = $2,
+                overpaid_amount = $3,
+                surplus_applied = $4,
+                status = $5
+            WHERE id = $6
+        `, [newCarriedOver, nPaid, nOverpaid, nSurplusApplied, nStatus, nextInst.id]);
+    } else if (debtForward >= 1) {
+        // Extensión si es la última y sobra deuda
+        const loanRes = await client.query("SELECT frequency FROM loans WHERE id = $1", [loanId]);
+        const frequency = loanRes.rows[0].frequency;
+        
+        let nextNumber = inst.installment_number + 1;
+        let nextDate = new Date(inst.due_date);
+        if (frequency === 'MENSUAL') nextDate.setMonth(nextDate.getMonth() + 1);
+        else if (frequency === 'QUINCENAL') nextDate.setDate(nextDate.getDate() + 15);
+        else nextDate.setDate(nextDate.getDate() + 7);
+
+        await client.query(
+            "INSERT INTO installments (loan_id, installment_number, due_date, original_amount, carried_over_amount, status) VALUES ($1, $2, $3, $4, $5, $6)",
+            [loanId, nextNumber, nextDate.toISOString(), 0, debtForward, 'PENDIENTE']
+        );
+    }
+
+    // 4. Actualizar Estado Global del Préstamo
+    const pendingRes = await client.query(
+        "SELECT COUNT(*) FROM installments WHERE loan_id = $1 AND status != 'PAGADO'",
+        [loanId]
+    );
+    const loanStatus = parseInt(pendingRes.rows[0].count) === 0 ? 'FINALIZADO' : 'ACTIVO';
+    await client.query("UPDATE loans SET status = $1 WHERE id = $2", [loanStatus, loanId]);
+
+    console.log(`[StepUpdate] Completed in ${Date.now() - startTime}ms`);
+}
+
+
+
+// PUT /api/installments/:id (Corregir/editar pago de cuota)
+// Recibe: { paid_amount: number, due_date?: string }
+// paid_amount REEMPLAZA el direct_payment actual (es una corrección, no un agregado)
+app.put('/api/installments/:id', async (req, res) => {
+    const { id } = req.params;
+    const { paid_amount, due_date } = req.body;
+    const client = await pool.connect();
+
     try {
         await client.query('BEGIN');
-        
-        const received = parseFloat(amount) || 0;
-        
-        // 1. Obtener la cuota actual
-        const instRes = await client.query(`
-            SELECT i.*, l.frequency 
-            FROM installments i 
-            JOIN loans l ON i.loan_id = l.id 
-            WHERE i.id = $1
-        `, [installment_id]);
-        
-        if (instRes.rows.length === 0) throw new Error('Installment not found');
-        const inst = instRes.rows[0];
-        const loan_id = inst.loan_id;
-        const total_due = parseFloat(inst.total_due);
-        const prev_paid = parseFloat(inst.paid_amount || 0);
-        const debt_remaining = total_due - prev_paid;
-        
-        const diff = debt_remaining - received;
-        
-        if (diff > 0) {
-            // Caso: Pagó MENOS de lo debido -> STATUS = PAGADO (porque la deuda salta a la sgte), paid_amount se suma
-            await client.query("UPDATE installments SET status = 'PAGADO', paid_amount = $1 WHERE id = $2", [prev_paid + received, inst.id]);
-            
-            // Arrastrar a la siguiente
-            const nextInstRes = await client.query(
-                "SELECT * FROM installments WHERE loan_id = $1 AND installment_number = $2",
-                [loan_id, inst.installment_number + 1]
-            );
-            
-            if (nextInstRes.rows.length > 0) {
-                await client.query(
-                    "UPDATE installments SET carried_over_amount = carried_over_amount + $1 WHERE id = $2",
-                    [diff, nextInstRes.rows[0].id]
-                );
-            } else {
-                let nextDate = new Date(inst.due_date);
-                if(inst.frequency === 'MENSUAL') nextDate.setMonth(nextDate.getMonth() + 1);
-                else if (inst.frequency === 'QUINCENAL') nextDate.setDate(nextDate.getDate() + 15);
-                else nextDate.setDate(nextDate.getDate() + 7);
 
-                await client.query(
-                    "INSERT INTO installments (loan_id, installment_number, due_date, original_amount, carried_over_amount) VALUES ($1, $2, $3, $4, $5)",
-                    [loan_id, inst.installment_number + 1, nextDate.toISOString(), 0, diff]
-                );
-            }
-        } else {
-            // Pagó EXACTO o MÁS de lo debido (diff <= 0)
-            let excess = Math.abs(diff);
+        // Verificar que la cuota existe y obtener loan_id
+        const instRes = await client.query(
+            'SELECT id, loan_id FROM installments WHERE id = $1',
+            [id]
+        );
+        if (instRes.rows.length === 0) throw new Error('Cuota no encontrada');
+        const loan_id = instRes.rows[0].loan_id;
 
-            // La cuota actual queda PAGADA al 100%
-            await client.query("UPDATE installments SET status = 'PAGADO', paid_amount = $1, overpaid_amount = $2 WHERE id = $3", [total_due, excess, inst.id]);
-            
-            if (excess > 0) {
-                // Hay excedente, aplicarlo a las cuotas posteriores (Adelanto)
-                const pendingRes = await client.query(
-                    "SELECT * FROM installments WHERE loan_id = $1 AND status != 'PAGADO' AND installment_number > $2 ORDER BY installment_number ASC",
-                    [loan_id, inst.installment_number]
-                );
-                
-                for (let target of pendingRes.rows) {
-                    if (excess <= 0) break;
-                    
-                    const target_due = parseFloat(target.total_due);
-                    const target_paid = parseFloat(target.paid_amount || 0);
-                    const target_remaining = target_due - target_paid;
-                    
-                    if (excess >= target_remaining) {
-                        // Liquida esta cuota por completo
-                        await client.query(
-                            "UPDATE installments SET status = 'PAGADO', paid_amount = $1 WHERE id = $2",
-                            [target_due, target.id]
-                        );
-                        excess -= target_remaining;
-                    } else {
-                        // Paga solo una parte de esta cuota, se mantiene PENDIENTE (Adelanto parcial)
-                        await client.query(
-                            "UPDATE installments SET paid_amount = paid_amount + $1 WHERE id = $2",
-                            [excess, target.id]
-                        );
-                        excess = 0;
-                    }
-                }
-                
-                // Si sobra plata incluso después de liquidar todo, se asienta en la actual
-                if (excess > 0) {
-                     await client.query("UPDATE installments SET paid_amount = paid_amount + $1 WHERE id = $2", [excess, inst.id]);
-                }
-            }
+        // Construir update dinámico según qué campos vienen en el body
+        const updates = [];
+        const values = [];
+        let idx = 1;
+
+        if (paid_amount !== undefined && paid_amount !== null) {
+            updates.push(`direct_payment = $${idx++}`);
+            values.push(parseFloat(paid_amount) || 0);
         }
-        
-        // 4. Verificar si el préstamo se ha liquidado totalmente
-        // Un préstamo se liquida si no hay cuotas PENDIENTES o ATRASADAS con saldo.
-        const pendingRes = await client.query(`
-            SELECT SUM(total_due - paid_amount) as total_remaining 
-            FROM installments 
-            WHERE loan_id = $1 AND status != 'PAGADO'
-        `, [loan_id]);
-        
-        // También verificar si la última cuota (que acabamos de pagar) dejó deuda
-        const hasMoreWork = diff > 0;
-        
-        if (!hasMoreWork) {
-            // Si no hay nada que arrastrar, verificar si todas las cuotas estan pagas
-            const allPaidRes = await client.query(
-                "SELECT COUNT(*) FROM installments WHERE loan_id = $1 AND status != 'PAGADO'",
-                [loan_id]
-            );
-            if (parseInt(allPaidRes.rows[0].count) === 0) {
-                await client.query("UPDATE loans SET status = 'FINALIZADO' WHERE id = $1", [loan_id]);
-            }
+        if (due_date !== undefined && due_date !== null) {
+            updates.push(`due_date = $${idx++}`);
+            values.push(due_date);
         }
+
+        if (updates.length === 0) throw new Error('No hay campos válidos para actualizar');
+
+        values.push(id);
+        await client.query(
+            `UPDATE installments SET ${updates.join(', ')} WHERE id = $${idx}`,
+            values
+        );
+
+        // Recalcular estado de esta cuota y la siguiente
+        await updateInstallmentStep(client, loan_id, id);
 
         await client.query('COMMIT');
-        res.json({ message: 'Pago procesado exitosamente' });
+        res.json({ message: 'Cuota corregida exitosamente' });
     } catch (err) {
         await client.query('ROLLBACK');
+        console.error('[PUT /installments] Error:', err.message);
         res.status(500).json({ error: err.message });
     } finally {
         client.release();
     }
 });
+
+// POST /api/payments (Registrar pago de cuota — ACUMULA al pago existente)
+// Recibe: { installment_id: string, amount: number }
+app.post('/api/payments', async (req, res) => {
+    const { installment_id, amount } = req.body;
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+        const received = parseFloat(amount) || 0;
+
+        if (received <= 0) throw new Error('El monto del pago debe ser mayor a cero');
+
+        const instRes = await client.query(
+            'SELECT loan_id FROM installments WHERE id = $1',
+            [installment_id]
+        );
+        if (instRes.rows.length === 0) throw new Error('Cuota no encontrada');
+        const loan_id = instRes.rows[0].loan_id;
+
+        // ACUMULAR: sumar al pago ya registrado
+        await client.query(
+            'UPDATE installments SET direct_payment = direct_payment + $1 WHERE id = $2',
+            [received, installment_id]
+        );
+
+        await updateInstallmentStep(client, loan_id, installment_id);
+
+        await client.query('COMMIT');
+        res.json({ message: 'Pago registrado exitosamente' });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('[POST /payments] Error:', err.message);
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
 
 // GET /api/dashboard (Estadísticas)
 app.get('/api/dashboard', async (req, res) => {
@@ -364,8 +484,9 @@ app.get('/api/dashboard', async (req, res) => {
             SELECT 
                 COALESCE(SUM(amount), 0) as total_prestado,
                 COALESCE(SUM(amount * (interest_rate / 100)), 0) as total_intereses,
-                (SELECT COALESCE(SUM(paid_amount + overpaid_amount), 0) FROM installments) as total_recuperado,
-                (SELECT COALESCE(SUM(total_due - paid_amount), 0) FROM installments WHERE status = 'ATRASADO' OR (due_date < CURRENT_DATE AND status = 'PENDIENTE')) as total_mora
+                (SELECT COALESCE(SUM(COALESCE(paid_amount, 0) + COALESCE(overpaid_amount, 0)), 0) FROM installments) as total_recuperado,
+                (SELECT COALESCE(SUM(total_due - paid_amount), 0) FROM installments WHERE (status = 'ATRASADO' OR (due_date < CURRENT_DATE AND status = 'PENDIENTE')) AND (total_due - paid_amount) >= 1) as total_mora,
+                (SELECT COALESCE(SUM(original_amount) - SUM(paid_amount), 0) FROM installments) as total_a_recuperar
             FROM loans
         `);
         res.json(stats.rows[0]);
@@ -388,7 +509,12 @@ app.get('/api/debts', async (req, res) => {
 app.get('/api/customers/:id/expediente', async (req, res) => {
     const { id } = req.params;
     try {
-        const customer = await pool.query('SELECT * FROM customers WHERE id = $1', [id]);
+        const customerResult = await pool.query('SELECT * FROM customers WHERE id = $1', [id]);
+        if (customerResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Cliente no encontrado' });
+        }
+        const customer = customerResult.rows[0];
+
         const loans = await pool.query(`
             SELECT l.*, 
                 (SELECT COUNT(*) FROM installments i WHERE i.loan_id = l.id AND i.paid_amount < i.total_due AND i.status = 'PAGADO') as partial_payments_count
@@ -409,7 +535,7 @@ app.get('/api/customers/:id/expediente', async (req, res) => {
         const is_moroso = loans.rows.some(l => parseInt(l.partial_payments_count) >= 3);
 
         res.json({
-            customer: customer.rows[0],
+            customer: customer,
             loans: loans.rows,
             installments: installments.rows,
             is_moroso
@@ -440,10 +566,14 @@ app.get('/api/export/:type', async (req, res) => {
 // Auto-migración al arrancar: garantiza que las columnas nuevas existan
 async function runMigrations() {
     try {
+        await pool.query("ALTER TABLE installments ADD COLUMN IF NOT EXISTS surplus_applied DECIMAL(12,2) DEFAULT 0.00;");
         await pool.query("ALTER TABLE installments ADD COLUMN IF NOT EXISTS overpaid_amount DECIMAL(12,2) DEFAULT 0.00;");
-        console.log('[Migration] overpaid_amount OK');
-        await pool.query("ALTER TABLE installments ADD COLUMN IF NOT EXISTS paid_amount DECIMAL(12,2) DEFAULT 0.00;");
-        console.log('[Migration] paid_amount OK');
+        await pool.query("ALTER TABLE installments ADD COLUMN IF NOT EXISTS direct_payment DECIMAL(12,2) DEFAULT 0.00;");
+        
+        // Inicializar direct_payment con los pagos manuales existentes contemplando excedentes
+        await pool.query("UPDATE installments SET direct_payment = (COALESCE(paid_amount, 0) - COALESCE(surplus_applied, 0) + COALESCE(overpaid_amount, 0)) WHERE direct_payment = 0;");
+
+        console.log('[Migration] Columns OK');
     } catch (err) {
         console.error('[Migration] Error:', err.message);
     }

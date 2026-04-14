@@ -9,6 +9,9 @@ const pool = new Pool({
   database: process.env.DB_NAME,
   password: process.env.DB_PASSWORD,
   port: process.env.DB_PORT,
+  max: 10,                        // máximo de conexiones en el pool
+  idleTimeoutMillis: 30000,       // cerrar conexiones inactivas tras 30s
+  connectionTimeoutMillis: 5000,  // fallar si no hay conexión libre en 5s
 });
 
 export default pool;
