@@ -270,11 +270,15 @@ app.get('/api/installments/id/:id', async (req, res) => {
     }
 });
 
-// Función Simplificada: Solo verifica la cuota actual y la SIGUIENTE
+// Función de actualización de cuota: Procesa cascada de pagos SIN crear nuevas cuotas
 async function updateInstallmentStep(client, loanId, installmentId) {
     console.log(`[ChainUpdate] Recalculating loan ${loanId} starting from ${installmentId}...`);
     const startTime = Date.now();
 
+    // 0. Obtener total_installments del préstamo para identificar cuotas extendidas
+    const loanRes = await client.query("SELECT total_installments FROM loans WHERE id = $1", [loanId]);
+    const totalInstallments = loanRes.rows[0]?.total_installments || 0;
+    
     // 1. Obtener todas las cuotas del préstamo ordenadas
     const instRes = await client.query(
         "SELECT * FROM installments WHERE loan_id = $1 ORDER BY installment_number ASC",
@@ -285,6 +289,13 @@ async function updateInstallmentStep(client, loanId, installmentId) {
     
     if (startIndex === -1) return;
 
+    // Resetear carried_over_amount a 0 para todas las cuotas regulares (no extendidas) antes de recalcular
+    // Esto evita que valores antiguos se propaguen
+    await client.query(
+        "UPDATE installments SET carried_over_amount = 0 WHERE loan_id = $1 AND installment_number <= $2",
+        [loanId, totalInstallments]
+    );
+
     let currentDebtForward = 0;
     let currentBalanceForward = 0;
 
@@ -293,28 +304,31 @@ async function updateInstallmentStep(client, loanId, installmentId) {
         const inst = installments[i];
         
         // Determinar qué llega a esta cuota
-        let arrivingCarriedOver = 0;
-        if (i === startIndex) {
-            // La primera de la cadena usa su valor actual (que debió ser seteado por la anterior o al crearla)
-            arrivingCarriedOver = parseFloat(inst.carried_over_amount || 0);
-        } else {
-            // Las siguientes usan el resultado de la iteración anterior
-            arrivingCarriedOver = currentDebtForward > 0 ? currentDebtForward : (currentBalanceForward > 0 ? -currentBalanceForward : 0);
+        let arrivingDebt = 0;      // Deuda que viene de anterior
+        let arrivingBalance = 0;   // Exceso que viene de anterior
+        
+        // NUNCA heredar de la primera cuota de la cascada - empieza limpia
+        if (i > startIndex) {
+            // Solo las SIGUIENTES heredan de la iteración anterior
+            arrivingDebt = currentDebtForward;
+            arrivingBalance = currentBalanceForward;
         }
 
         const originalAmount = parseFloat(inst.original_amount);
         const manualPayment = parseFloat(inst.direct_payment || 0);
-        const totalDue = originalAmount + (arrivingCarriedOver > 0 ? arrivingCarriedOver : 0);
-        const availableMoney = manualPayment + (arrivingCarriedOver < 0 ? Math.abs(arrivingCarriedOver) : 0);
+        const totalDue = originalAmount + arrivingDebt;
+        const availableMoney = manualPayment + arrivingBalance;
         
         let paidAmount = 0;
         let nextBalanceForward = 0;
         let nextDebtForward = 0;
 
         if (availableMoney >= totalDue) {
+            // Pago completo: hay saldo para pasar a la siguiente
             paidAmount = totalDue;
             nextBalanceForward = availableMoney - totalDue;
         } else {
+            // Pago incompleto: falta deuda para la siguiente
             paidAmount = availableMoney;
             nextDebtForward = totalDue - availableMoney;
         }
@@ -325,42 +339,69 @@ async function updateInstallmentStep(client, loanId, installmentId) {
 
         const isPaid = (totalDue > 0 && (totalDue - paidAmount) < 1) || (totalDue === 0 && availableMoney >= 1);
         const status = isPaid ? 'PAGADO' : 'PENDIENTE';
-        const surplusApplied = arrivingCarriedOver < 0 ? Math.abs(arrivingCarriedOver) : 0;
 
+        // LOG: Ver qué está pasando
+        console.log(`[Cascade] #${inst.installment_number}: original=${originalAmount}, arriving=${arrivingDebt}, manualPay=${manualPayment}, totalDue=${totalDue}, availableM=${availableMoney}, nextDebt=${nextDebtForward}, status=${status}`);
+
+        // IMPORTANTE: Solo propagar deuda HEREDADA, no deuda original no pagada
+        // Si esta cuota NO heredó deuda (arrivingDebt=0) pero no pagó su original,
+        // eso NO se propaga - cada cuota es responsable de su deuda original
+        const propagatedDebt = arrivingDebt > 0 ? nextDebtForward : 0;
+
+        // Guardar lo que ESTA CUOTA PROPAGA a la siguiente
         await client.query(`
             UPDATE installments 
             SET carried_over_amount = $1,
                 paid_amount = $2,
                 overpaid_amount = $3,
-                surplus_applied = $4,
-                status = $5
-            WHERE id = $6
-        `, [arrivingCarriedOver, paidAmount, nextBalanceForward, surplusApplied, status, inst.id]);
+                status = $4
+            WHERE id = $5
+        `, [propagatedDebt, paidAmount, nextBalanceForward, status, inst.id]);
 
         // Guardar para la siguiente iteración
-        currentDebtForward = nextDebtForward;
+        currentDebtForward = propagatedDebt;
         currentBalanceForward = nextBalanceForward;
+    }
 
-        // 3. Extensión si es la última y sobra deuda
-        if (i === installments.length - 1 && currentDebtForward >= 1) {
-            const loanRes = await client.query("SELECT frequency FROM loans WHERE id = $1", [loanId]);
-            const frequency = loanRes.rows[0].frequency;
-            
-            let nextNumber = inst.installment_number + 1;
-            let nextDate = new Date(inst.due_date);
-            if (frequency === 'MENSUAL') nextDate.setMonth(nextDate.getMonth() + 1);
-            else if (frequency === 'QUINCENAL') nextDate.setDate(nextDate.getDate() + 15);
-            else nextDate.setDate(nextDate.getDate() + 7);
-
-            const inserted = await client.query(
-                "INSERT INTO installments (loan_id, installment_number, due_date, original_amount, carried_over_amount, status) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
-                [loanId, nextNumber, nextDate.toISOString(), 0, currentDebtForward, 'PENDIENTE']
-            );
-            
-            // Re-lanzamos la cadena desde la nueva cuota para procesarla (esto ocurrirá una sola vez por paso)
-            await updateInstallmentStep(client, loanId, inserted.rows[0].id);
-            break; // Salimos del bucle actual ya que la recursión manejará el resto
+    // 3. Si hay deuda residual en la última cuota, eliminar cuotas extendidas previas y crear una nueva
+    if (currentDebtForward > 0) {
+        console.log(`[ChainUpdate] Residual debt of ${currentDebtForward} Gs detected. Cleaning old extended installments...`);
+        
+        // Eliminar todas las cuotas extendidas previas (aquellas con installment_number > total_installments)
+        await client.query(
+            "DELETE FROM installments WHERE loan_id = $1 AND installment_number > $2",
+            [loanId, totalInstallments]
+        );
+        console.log(`[ChainUpdate] Old extended installments removed`);
+        
+        // Obtener información del préstamo para determinar la nueva frecuencia
+        const updatedLoanRes = await client.query("SELECT frequency FROM loans WHERE id = $1", [loanId]);
+        const frequency = updatedLoanRes.rows[0]?.frequency || 'MENSUAL';
+        
+        // Obtener la última cuota NON-EXTENDED para calcular la fecha de la nueva cuota
+        const lastRegularInstallment = installments.filter(i => i.installment_number <= totalInstallments).pop();
+        if (!lastRegularInstallment) return console.log('[ChainUpdate] No regular installments found');
+        
+        let newDueDate = new Date(lastRegularInstallment.due_date);
+        
+        // Agregar tiempo según la frecuencia
+        if (frequency === 'MENSUAL') {
+            newDueDate.setMonth(newDueDate.getMonth() + 1);
+        } else if (frequency === 'QUINCENAL') {
+            newDueDate.setDate(newDueDate.getDate() + 15);
+        } else if (frequency === 'SEMANAL') {
+            newDueDate.setDate(newDueDate.getDate() + 7);
         }
+        
+        const nextInstallmentNumber = totalInstallments + 1;
+        
+        // Crear la nueva cuota extendida
+        await client.query(
+            'INSERT INTO installments (loan_id, installment_number, due_date, original_amount, carried_over_amount) VALUES ($1, $2, $3, $4, $5)',
+            [loanId, nextInstallmentNumber, newDueDate.toISOString(), 0, currentDebtForward]
+        );
+        
+        console.log(`[ChainUpdate] Extended installment created: #${nextInstallmentNumber} for ${currentDebtForward} Gs due ${newDueDate.toISOString()}`);
     }
 
     // 4. Actualizar Estado Global del Préstamo (FINALIZADO / MOROSO / ACTIVO)

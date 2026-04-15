@@ -470,8 +470,9 @@ function renderLoansList() {
         const client = state.clients.find(c => c.id === l.customer_id);
         const clientName = client ? client.full_name : 'Desconocido';
 
-        // Calcular cuotas resumen
+        // Calcular cuotas resumen (incluyendo cuotas extendidas)
         const loanInsts = state.installments.filter(inst => inst.loan_id === l.id);
+        const totalActualInstallments = loanInsts.length; // Total actual incluyendo extendidas
         const pagadas = loanInsts.filter(i => i.status === 'PAGADO').length;
         const pendientes = loanInsts.filter(i => i.status === 'PENDIENTE' || i.status === 'ATRASADO').length;
         const isExtended = loanInsts.some(i => i.installment_number > l.total_installments);
@@ -509,8 +510,7 @@ function renderLoansList() {
                         <div>
                             <p class="text-[10px] text-gray-400 uppercase font-bold">Cuotas</p>
                             <p class="text-xs font-semibold">
-                                <span class="text-success">${pagadas} Pag.</span> / 
-                                <span class="text-danger">${pendientes} Pend.</span>
+                                <span class="text-success">${pagadas}</span> / <span class="text-gray-600">${totalActualInstallments}</span>
                             </p>
                         </div>
                         <div class="text-right">
@@ -777,6 +777,7 @@ async function renderExpedienteUI(clientId) {
 
                 loans.forEach(l => {
                     const lInsts = installments.filter(i => i.loan_id === l.id);
+                    const totalActualInstallments = lInsts.length; // Total actual incluyendo cuotas extendidas
                     const pagadas = lInsts.filter(i => i.status === 'PAGADO').length;
                     const loanRecuperado = lInsts.reduce((sum, i) => sum + (parseFloat(i.paid_amount || 0) + parseFloat(i.overpaid_amount || 0)), 0);
 
@@ -796,7 +797,7 @@ async function renderExpedienteUI(clientId) {
                             </div>
                             <div>
                                 <p class="text-[10px] text-gray-400 uppercase font-bold">Cuotas</p>
-                                <p class="text-sm font-bold text-gray-800">${pagadas} / ${l.total_installments}</p>
+                                <p class="text-sm font-bold text-gray-800">${pagadas} / ${totalActualInstallments}</p>
                             </div>
                             <div>
                                 <p class="text-[10px] text-gray-400 uppercase font-bold">Frecuencia</p>
