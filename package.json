@@ -10,8 +10,8 @@
   "main": "electron_main.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
     "init-db": "node scripts/init_db.js",
     "electron": "electron .",
     "build": "electron-builder"

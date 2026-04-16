@@ -269,7 +269,7 @@ async function fetchData() {
         if (state.currentExpedienteId) {
             const clientExists = state.clients.some(c => c.id === state.currentExpedienteId);
             const modalVisible = !document.getElementById('modal-expediente').classList.contains('hidden');
-            
+
             if (clientExists && modalVisible) {
                 renderExpedienteUI(state.currentExpedienteId);
             } else if (!clientExists) {
@@ -325,8 +325,8 @@ function renderDashboard(data) {
     const term = document.getElementById('search-dashboard')?.value.toLowerCase() || '';
     let filteredUpcoming = upcoming;
     if (term) {
-        filteredUpcoming = upcoming.filter(i => 
-            i.client_name.toLowerCase().includes(term) || 
+        filteredUpcoming = upcoming.filter(i =>
+            i.client_name.toLowerCase().includes(term) ||
             i.loan_id.slice(0, 8).toLowerCase().includes(term)
         );
     }
@@ -348,7 +348,7 @@ function renderDashboard(data) {
                 const isLate = inst.due_date < todayStr;
                 let color = isLate ? 'text-danger' : 'text-primary';
                 mList.innerHTML += `
-                    <li class="flex justify-between items-center bg-gray-50 p-3 rounded-lg border border-gray-100 cursor-pointer hover:bg-gray-100 transition-colors" onclick="openPaymentModal('${inst.id}', '${inst.loan_id}', '${inst.client_name}', ${inst.total_due})">
+                    <li class="flex justify-between items-center bg-gray-50 p-3 rounded-lg border border-gray-100 cursor-pointer hover:bg-gray-100 transition-colors" onclick="openPaymentModal('${inst.id}', '${inst.loan_id}', '${inst.client_name}', ${parseFloat(inst.total_due) - parseFloat(inst.paid_amount || 0)})">
                         <div>
                             <p class="font-semibold text-gray-800 text-sm">${inst.client_name}</p>
                             <p class="text-xs text-gray-500">${formatDate(inst.due_date)} • Cuota #${inst.installment_number}</p>
@@ -691,7 +691,7 @@ function renderPaymentsTable() {
 
 function filterCalendarByLoan(loanId) {
     currentLoanFilter = loanId;
-    
+
     // Encontrar la fecha de la primera cuota para este préstamo
     const loanInsts = state.installments.filter(inst => inst.loan_id === loanId);
     let targetDate = null;
@@ -745,7 +745,7 @@ async function renderExpedienteUI(clientId) {
 
         // Resumen
         const totalPrestado = loans.reduce((sum, l) => sum + parseFloat(l.amount), 0);
-        const totalRecuperado = installments.reduce((sum, i) => sum + (parseFloat(i.paid_amount || 0) + parseFloat(i.overpaid_amount || 0)), 0);
+        const totalRecuperado = installments.reduce((sum, i) => sum + parseFloat(i.direct_payment || 0), 0);
         const loansCount = loans.length;
         const statusColor = is_moroso ? 'text-danger' : 'text-success';
         const statusText = is_moroso ? 'MOROSO' : 'LIMPIO';
@@ -775,15 +775,15 @@ async function renderExpedienteUI(clientId) {
         const container = document.getElementById('exp-loans-container');
         container.innerHTML = '';
 
-                loans.forEach(l => {
-                    const lInsts = installments.filter(i => i.loan_id === l.id);
-                    const totalActualInstallments = lInsts.length; // Total actual incluyendo cuotas extendidas
-                    const pagadas = lInsts.filter(i => i.status === 'PAGADO').length;
-                    const loanRecuperado = lInsts.reduce((sum, i) => sum + (parseFloat(i.paid_amount || 0) + parseFloat(i.overpaid_amount || 0)), 0);
+        loans.forEach(l => {
+            const lInsts = installments.filter(i => i.loan_id === l.id);
+            const totalActualInstallments = lInsts.length; // Total actual incluyendo cuotas extendidas
+            const pagadas = lInsts.filter(i => i.status === 'PAGADO').length;
+            const loanRecuperado = lInsts.reduce((sum, i) => sum + parseFloat(i.direct_payment || 0), 0);
 
-                    const loanEl = document.createElement('div');
-                    loanEl.className = 'bg-white border border-gray-200 rounded-xl overflow-hidden mb-6 last:mb-0';
-                    loanEl.innerHTML = `
+            const loanEl = document.createElement('div');
+            loanEl.className = 'bg-white border border-gray-200 rounded-xl overflow-hidden mb-6 last:mb-0';
+            loanEl.innerHTML = `
                 <div class="bg-gray-50 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
                     <span class="text-xs font-bold text-gray-500">PRÉSTAMO #${l.id.slice(0, 8)} • ${formatDate(l.created_at)}</span>
                     <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${l.status === 'FINALIZADO' ? 'bg-success/10 text-success' : 'bg-primary/10 text-primary'}">${l.status}</span>
@@ -859,13 +859,13 @@ async function renderExpedienteUI(clientId) {
                 // El Neto es simplemente el total_due, que ya incluye excedentes y deudas arrastradas
                 const netTotal = parseFloat(i.total_due);
 
-    const isLatestWithMoney = i.installment_number === lastRecNum;
-    const isNextEmpty = i.installment_number === firstEmptyNum;
-    const canInteract = isLatestWithMoney || isNextEmpty;
-    const isEditMode = isLatestWithMoney;
+                const isLatestWithMoney = i.installment_number === lastRecNum;
+                const isNextEmpty = i.installment_number === firstEmptyNum;
+                const canInteract = isLatestWithMoney || isNextEmpty;
+                const isEditMode = isLatestWithMoney;
 
-    return `
-        <div onclick="${canInteract ? `openPaymentModal('${i.id}', '${l.id}', '${customer.full_name}', ${isEditMode ? (i.direct_payment || 0) : netTotal}, ${isEditMode})` : ''}"
+                return `
+        <div onclick="${canInteract ? `openPaymentModal('${i.id}', '${l.id}', '${customer.full_name}', ${isEditMode ? (i.direct_payment || 0) : (netTotal - parseFloat(i.paid_amount || 0))}, ${isEditMode})` : ''}"
              class="p-2 border rounded-lg ${bgColor} text-[10px] flex flex-col gap-1 relative ${canInteract ? 'cursor-pointer hover:border-primary/50 hover:bg-white transition-colors' : 'opacity-60 cursor-not-allowed'} group">
             ${isExtended ? `<span class="absolute -top-2 -right-1 bg-amber-500 text-white text-[7px] px-1 rounded font-black shadow-sm">EXT</span>` : ''}
 
@@ -893,16 +893,16 @@ async function renderExpedienteUI(clientId) {
             ${(isPaid && parseFloat(i.overpaid_amount || 0) > 0) ? `<div class="text-[9px] text-emerald-700 font-bold border-t border-emerald-200 pt-1 mt-1 flex justify-between bg-emerald-100/50 p-1 rounded"><span>💰 Saldo a Favor:</span><span>${formatMoney(i.overpaid_amount)}</span></div>` : ''}
         </div>
     `;
-                        }).join('')}
+            }).join('')}
                     </div>
                 </div>
             `;
-                container.appendChild(loanEl);
-            });
-        } catch (err) {
-            alert("Error cargando expediente: " + err.message);
-        }
+            container.appendChild(loanEl);
+        });
+    } catch (err) {
+        alert("Error cargando expediente: " + err.message);
     }
+}
 
 function openClientModal(clientId = null) {
     const hiddenId = document.getElementById('client-id-hidden');
