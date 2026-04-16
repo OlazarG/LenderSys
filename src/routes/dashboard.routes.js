@@ -9,6 +9,7 @@ router.post('/trigger-accumulation', dashboardController.triggerAccumulation);
 router.use(verifyToken);
 router.get('/dashboard', dashboardController.getDashboardStats);
 router.get('/debts', dashboardController.getDebts);
+router.get('/today-expected-box', dashboardController.getTodayExpectedBox);
 router.get('/export/:type', dashboardController.exportData);
 
 export default router;

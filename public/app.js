@@ -247,11 +247,12 @@ function switchView(viewName, btnObj, preserveFilter = false) {
 
 async function fetchData() {
     try {
-        const [resCustomers, resLoans, resInst, resDash] = await Promise.all([
+        const [resCustomers, resLoans, resInst, resDash, resTodayBox] = await Promise.all([
             authFetch(`${API_URL}/customers`).then(r => r.json()),
             authFetch(`${API_URL}/loans`).then(r => r.json()),
             authFetch(`${API_URL}/installments`).then(r => r.json()),
-            authFetch(`${API_URL}/dashboard`).then(r => r.json())
+            authFetch(`${API_URL}/dashboard`).then(r => r.json()),
+            authFetch(`${API_URL}/today-expected-box`).then(r => r.json())
         ]);
 
         state.clients = resCustomers || [];
@@ -260,8 +261,9 @@ async function fetchData() {
 
         renderClientsList();
         renderLoansList();
-        renderDashboard(resDash);
+        renderDashboard(resDash, resTodayBox);
         state.lastDashData = resDash;
+        state.todayBoxData = resTodayBox;
         renderCalendar();
         renderPaymentsTable();
 
@@ -290,8 +292,10 @@ async function fetchData() {
     }
 }
 
-function renderDashboard(data) {
+function renderDashboard(data, todayBoxData) {
     if (!data) data = state.lastDashData || {};
+    if (!todayBoxData) todayBoxData = state.todayBoxData || { today_amount: 0, today_count: 0, pending_count: 0, late_count: 0 };
+    
     const kpis = {
         'dash-prestado': data.total_prestado,
         'dash-recuperado': data.total_recuperado,
@@ -304,23 +308,16 @@ function renderDashboard(data) {
         if (el) el.innerText = formatMoney(kpis[id] || 0);
     });
 
-    const todayStr = new Date().toISOString().split('T')[0];
-    let hoyCount = 0, pendCount = 0, vencCount = 0, hoyEsperado = 0;
-    let upcoming = [];
+    // Use data from backend endpoint
+    const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
+    setVal('dash-hoy-esperado', formatMoney(todayBoxData.today_amount || 0));
+    setVal('dash-hoy-count', todayBoxData.today_count || 0);
+    setVal('dash-pend-count', todayBoxData.pending_count || 0);
+    setVal('dash-venc-count', todayBoxData.late_count || 0);
 
-    state.installments.forEach(inst => {
-        if (inst.status !== 'PAGADO' && inst.status !== 'TRANSFERIDO') {
-            const isLate = inst.due_date < todayStr;
-            if (isLate) vencCount++;
-            else if (inst.due_date === todayStr) {
-                hoyCount++;
-                hoyEsperado += parseFloat(inst.total_due);
-            } else {
-                pendCount++;
-            }
-            upcoming.push(inst);
-        }
-    });
+    // Render upcoming payments list
+    const todayStr = new Date().toISOString().split('T')[0];
+    let upcoming = state.installments.filter(inst => inst.status !== 'PAGADO' && inst.status !== 'TRANSFERIDO');
 
     const term = document.getElementById('search-dashboard')?.value.toLowerCase() || '';
     let filteredUpcoming = upcoming;
@@ -330,12 +327,6 @@ function renderDashboard(data) {
             i.loan_id.slice(0, 8).toLowerCase().includes(term)
         );
     }
-
-    const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
-    setVal('dash-hoy-esperado', formatMoney(hoyEsperado));
-    setVal('dash-hoy-count', hoyCount);
-    setVal('dash-pend-count', pendCount);
-    setVal('dash-venc-count', vencCount);
 
     filteredUpcoming.sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
     const mList = document.getElementById('list-upcoming');
