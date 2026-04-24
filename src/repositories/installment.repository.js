@@ -80,21 +80,24 @@ export const clearCarriedOverAmounts = async (client, loanId, limitNumber) => {
 };
 
 export const updatePropagatedDebt = async (client, id, carriedOver, surplusApplied, paid, overpaid, status) => {
+    const isPagado = status === 'PAGADO';
     await client.query(`
         UPDATE installments 
         SET carried_over_amount = $1,
             surplus_applied = $2,
             paid_amount = $3,
             overpaid_amount = $4,
-            status = $5
+            status = $5::installment_status,
+            payment_date = CASE WHEN $7::boolean THEN CURRENT_DATE ELSE payment_date END
         WHERE id = $6
-    `, [carriedOver, surplusApplied, paid, overpaid, status, id]);
+    `, [carriedOver, surplusApplied, paid, overpaid, status, id, isPagado]);
 };
 
 export const updatePaidAmountAndStatus = async (client, id, paidAmount, status) => {
+    const isPagado = status === 'PAGADO';
     await client.query(
-        "UPDATE installments SET paid_amount = $1, status = $2 WHERE id = $3",
-        [paidAmount, status, id]
+        "UPDATE installments SET paid_amount = $1, status = $2::installment_status, payment_date = CASE WHEN $4::boolean THEN CURRENT_DATE ELSE payment_date END WHERE id = $3",
+        [paidAmount, status, id, isPagado]
     );
 };
 

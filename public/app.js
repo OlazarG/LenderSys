@@ -115,6 +115,19 @@ let calendarInstance = null;
 let currentLoanFilter = null;
 let currentView = 'dashboard';
 
+// Pagination state
+let currentClientPage = 1;
+let totalClientPages = 1;
+let currentClientSearch = '';
+let clientsDataCurrentPage = [];
+
+let currentLoanPage = 1;
+let totalLoanPages = 1;
+let currentLoanSearch = '';
+let loansDataCurrentPage = [];
+
+let searchTimeout = null;
+
 // Utilities
 const formatMoney = (amount) => {
     return new Intl.NumberFormat('es-PY', {
@@ -240,6 +253,8 @@ function switchView(viewName, btnObj, preserveFilter = false) {
         renderClientsList();
     } else if (viewName === 'prestamos') {
         renderLoansList();
+    } else if (viewName === 'reportes') {
+        fetchCardReports();
     } else if (viewName === 'dashboard') {
         renderDashboard();
     }
@@ -247,20 +262,21 @@ function switchView(viewName, btnObj, preserveFilter = false) {
 
 async function fetchData() {
     try {
-        const [resCustomers, resLoans, resInst, resDash, resTodayBox] = await Promise.all([
-            authFetch(`${API_URL}/customers`).then(r => r.json()),
-            authFetch(`${API_URL}/loans`).then(r => r.json()),
+        const [resCustomersAll, resLoansAll, resInst, resDash, resTodayBox] = await Promise.all([
+            authFetch(`${API_URL}/customers?limit=all`).then(r => r.json()),
+            authFetch(`${API_URL}/loans?limit=all`).then(r => r.json()),
             authFetch(`${API_URL}/installments`).then(r => r.json()),
             authFetch(`${API_URL}/dashboard`).then(r => r.json()),
             authFetch(`${API_URL}/today-expected-box`).then(r => r.json())
         ]);
 
-        state.clients = resCustomers || [];
-        state.loans = resLoans || [];
+        state.clients = resCustomersAll.data || [];
+        state.loans = resLoansAll.data || [];
         state.installments = resInst || [];
 
-        renderClientsList();
-        renderLoansList();
+        fetchClientsPage(1);
+        fetchLoansPage(1);
+        fetchCardReports();
         renderDashboard(resDash, resTodayBox);
         state.lastDashData = resDash;
         state.todayBoxData = resTodayBox;
@@ -393,18 +409,38 @@ function renderChart() {
     });
 }
 
+async function fetchClientsPage(page = 1) {
+    try {
+        const res = await authFetch(`${API_URL}/customers?page=${page}&limit=20&search=${encodeURIComponent(currentClientSearch)}`);
+        const data = await res.json();
+        currentClientPage = data.page;
+        totalClientPages = data.totalPages;
+        clientsDataCurrentPage = data.data;
+        renderClientsList();
+        renderClientsPagination();
+    } catch(err) {
+        console.error(err);
+    }
+}
+
+function handleClientSearch(term) {
+    currentClientSearch = term.trim();
+    if (searchTimeout) clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+        fetchClientsPage(1);
+    }, 300);
+}
+
 function renderClientsList() {
-    const searchEl = document.getElementById('search-client');
-    const term = searchEl ? searchEl.value.toLowerCase() : '';
     const container = document.getElementById('clients-list');
     if (!container) return;
     container.innerHTML = '';
-    const filtered = state.clients.filter(c => c.full_name.toLowerCase().includes(term));
-    if (filtered.length === 0) {
+    
+    if (clientsDataCurrentPage.length === 0) {
         container.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-gray-500">No se encontraron clientes.</td></tr>';
         return;
     }
-    filtered.forEach(c => {
+    clientsDataCurrentPage.forEach(c => {
         container.innerHTML += `
             <tr class="hover:bg-gray-50 transition-colors cursor-pointer" onclick="openExpedienteModal('${c.id}')">
                 <td class="px-6 py-4">
@@ -436,30 +472,54 @@ function renderClientsList() {
     });
 }
 
+function renderClientsPagination() {
+    const pContainer = document.getElementById('clients-pagination');
+    if (!pContainer) return;
+    pContainer.innerHTML = '';
+    if (totalClientPages <= 1) return;
+
+    let html = `<div class="flex gap-2">`;
+    html += `<button onclick="fetchClientsPage(${currentClientPage - 1})" ${currentClientPage === 1 ? 'disabled' : ''} class="px-3 py-1 border rounded-lg text-xs font-bold ${currentClientPage === 1 ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : 'bg-white text-primary hover:bg-primary hover:text-white border-primary/20'}">&lt; Ant</button>`;
+    html += `<span class="px-3 py-1 text-xs font-bold text-gray-600 flex items-center">Página ${currentClientPage} de ${totalClientPages}</span>`;
+    html += `<button onclick="fetchClientsPage(${currentClientPage + 1})" ${currentClientPage === totalClientPages ? 'disabled' : ''} class="px-3 py-1 border rounded-lg text-xs font-bold ${currentClientPage === totalClientPages ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : 'bg-white text-primary hover:bg-primary hover:text-white border-primary/20'}">Sig &gt;</button>`;
+    html += `</div>`;
+    pContainer.innerHTML = html;
+}
+
+async function fetchLoansPage(page = 1) {
+    try {
+        const res = await authFetch(`${API_URL}/loans?page=${page}&limit=20&search=${encodeURIComponent(currentLoanSearch)}`);
+        const data = await res.json();
+        currentLoanPage = data.page;
+        totalLoanPages = data.totalPages;
+        loansDataCurrentPage = data.data;
+        renderLoansList();
+        renderLoansPagination();
+    } catch(err) {
+        console.error(err);
+    }
+}
+
+function handleLoanSearch(term) {
+    currentLoanSearch = term.trim();
+    if (searchTimeout) clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+        fetchLoansPage(1);
+    }, 300);
+}
+
 function renderLoansList() {
     const container = document.getElementById('loans-list');
     if (!container) return;
     container.innerHTML = '';
-    if (state.loans.length === 0) {
-        container.innerHTML = '<p class="text-gray-500 col-span-full text-center py-8">No hay préstamos registrados</p>';
-        return;
-    }
-
-    const term = document.getElementById('search-loans')?.value.toLowerCase() || '';
-    const filtered = state.loans.filter(l => {
-        const client = state.clients.find(c => c.id === l.customer_id);
-        const name = client ? client.full_name.toLowerCase() : '';
-        return name.includes(term) || l.id.slice(0, 8).toLowerCase().includes(term);
-    });
-
-    if (filtered.length === 0) {
+    
+    if (loansDataCurrentPage.length === 0) {
         container.innerHTML = '<p class="text-gray-500 col-span-full text-center py-8">No se encontraron préstamos.</p>';
         return;
     }
 
-    filtered.forEach(l => {
-        const client = state.clients.find(c => c.id === l.customer_id);
-        const clientName = client ? client.full_name : 'Desconocido';
+    loansDataCurrentPage.forEach(l => {
+        const clientName = l.client_name || 'Desconocido';
 
         // Calcular cuotas resumen (incluyendo cuotas extendidas)
         const loanInsts = state.installments.filter(inst => inst.loan_id === l.id);
@@ -485,8 +545,14 @@ function renderLoansList() {
                 <div class="absolute top-0 right-0 ${badgeColor} text-[10px] font-bold px-3 py-1 rounded-bl-lg">${statusText}</div>
                 <div class="mb-4">
                     <h4 class="font-bold text-gray-800 text-lg">${clientName}</h4>
-                    <p class="text-xs text-gray-400">Ref #${l.id.slice(0, 8)} • ${l.frequency}</p>
-                    <button onclick="event.stopPropagation(); openExpedienteModal('${l.customer_id}')" class="mt-2 text-xs font-bold text-primary hover:text-orange-700 hover:underline inline-flex items-center gap-1">Ver Expediente <i class="fas fa-arrow-right text-[10px]"></i></button>
+                    <p class="text-xs text-gray-400 flex items-center gap-2">
+                        Ref #${l.id.slice(0, 8)} • ${l.frequency}
+                        ${l.card_number ? `<span class="bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-bold text-[10px] items-center inline-flex gap-1"><i class="fas fa-credit-card"></i> ${l.card_number}</span>` : ''}
+                    </p>
+                    <div class="flex items-center mt-2">
+                        <button onclick="event.stopPropagation(); openExpedienteModal('${l.customer_id}')" class="text-xs font-bold text-primary hover:text-orange-700 hover:underline inline-flex items-center gap-1">Ver Expediente <i class="fas fa-arrow-right text-[10px]"></i></button>
+                        <button onclick="event.stopPropagation(); openEditCardModal('${l.id}', '${l.card_number || ''}')" class="ml-4 text-xs font-bold ${l.card_number ? 'text-blue-500 hover:text-blue-700' : 'text-gray-400 hover:text-gray-600'} hover:underline inline-flex items-center gap-1"><i class="fas fa-edit"></i> ${l.card_number ? 'Editar Tarjeta' : 'Vincular Tarjeta'}</button>
+                    </div>
                 </div>
                 <div class="grid grid-cols-2 gap-y-4 gap-x-2 text-sm bg-gray-50 p-3 rounded-lg border border-gray-100">
                     <div>
@@ -513,6 +579,20 @@ function renderLoansList() {
             </div>
         `;
     });
+}
+
+function renderLoansPagination() {
+    const pContainer = document.getElementById('loans-pagination');
+    if (!pContainer) return;
+    pContainer.innerHTML = '';
+    if (totalLoanPages <= 1) return;
+
+    let html = `<div class="flex gap-2">`;
+    html += `<button onclick="fetchLoansPage(${currentLoanPage - 1})" ${currentLoanPage === 1 ? 'disabled' : ''} class="px-3 py-1 border rounded-lg text-xs font-bold ${currentLoanPage === 1 ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : 'bg-white text-primary hover:bg-primary hover:text-white border-primary/20'}">&lt; Ant</button>`;
+    html += `<span class="px-3 py-1 text-xs font-bold text-gray-600 flex items-center">Página ${currentLoanPage} de ${totalLoanPages}</span>`;
+    html += `<button onclick="fetchLoansPage(${currentLoanPage + 1})" ${currentLoanPage === totalLoanPages ? 'disabled' : ''} class="px-3 py-1 border rounded-lg text-xs font-bold ${currentLoanPage === totalLoanPages ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : 'bg-white text-primary hover:bg-primary hover:text-white border-primary/20'}">Sig &gt;</button>`;
+    html += `</div>`;
+    pContainer.innerHTML = html;
 }
 
 function renderCalendar() {
@@ -776,7 +856,7 @@ async function renderExpedienteUI(clientId) {
             loanEl.className = 'bg-white border border-gray-200 rounded-xl overflow-hidden mb-6 last:mb-0';
             loanEl.innerHTML = `
                 <div class="bg-gray-50 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
-                    <span class="text-xs font-bold text-gray-500">PRÉSTAMO #${l.id.slice(0, 8)} • ${formatDate(l.created_at)}</span>
+                    <span class="text-xs font-bold text-gray-500">PRÉSTAMO #${l.id.slice(0, 8)} • ${formatDate(l.created_at)} ${l.card_number ? `• 💳 ${l.card_number}` : ''}</span>
                     <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${l.status === 'FINALIZADO' ? 'bg-success/10 text-success' : 'bg-primary/10 text-primary'}">${l.status}</span>
                 </div>
                 <div class="p-4">
@@ -1129,6 +1209,89 @@ async function exportData(type) {
         }
     } catch (err) {
         alert("Error al exportar los datos");
+    }
+}
+
+// ----------------------------------------------------
+// LOGICA DE TARJETAS Y REPORTES
+// ----------------------------------------------------
+
+function openEditCardModal(loanId, currentCard) {
+    document.getElementById('edit-tarjeta-loan-id').value = loanId;
+    document.getElementById('edit-tarjeta-numero').value = currentCard || '';
+    openModal('modal-editar-tarjeta');
+}
+
+async function saveLoanCard() {
+    const loanId = document.getElementById('edit-tarjeta-loan-id').value;
+    const cardNumber = document.getElementById('edit-tarjeta-numero').value.trim();
+
+    try {
+        const res = await authFetch(`${API_URL}/loans/${loanId}/card`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ card_number: cardNumber || null })
+        });
+
+        if (!res.ok) throw new Error("Error al guardar tarjeta");
+        
+        closeModal('modal-editar-tarjeta');
+        fetchLoansPage(currentLoanPage); // Refresh current page
+        if (state.currentExpedienteId) {
+            renderExpedienteUI(state.currentExpedienteId);
+        }
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+async function fetchCardReports() {
+    const fromInput = document.getElementById('reporte-desde')?.value;
+    const toInput = document.getElementById('reporte-hasta')?.value;
+    let url = `${API_URL}/reports/cards`;
+    
+    let queryParams = [];
+    if (fromInput) queryParams.push(`startDate=${fromInput}`);
+    if (toInput) queryParams.push(`endDate=${toInput}`);
+    if (queryParams.length > 0) {
+        url += '?' + queryParams.join('&');
+    }
+
+    try {
+        const res = await authFetch(url);
+        if (!res.ok) throw new Error("Error fetching reports");
+        const data = await res.json();
+        
+        // Actualizar UI del summary
+        if(document.getElementById('reporte-total-tarjetas')) {
+             document.getElementById('reporte-total-tarjetas').innerText = data.summary.totalCards;
+             document.getElementById('reporte-total-monto').innerText = formatMoney(data.summary.totalAmount);
+        }
+
+        // Renderizar tabla
+        const tbody = document.getElementById('reporte-tabla');
+        if (tbody) {
+            tbody.innerHTML = '';
+            if (data.details.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-8 text-center text-gray-500">No se encontraron cobros para el período.</td></tr>';
+            } else {
+                data.details.forEach(item => {
+                    const cobroDateStr = item.timestamp ? formatDate(item.timestamp, true) : (item.collection_date || '-');
+                    tbody.innerHTML += `
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-6 py-4 text-gray-600">${cobroDateStr}</td>
+                            <td class="px-6 py-4 font-bold text-gray-800">${item.client_name}</td>
+                            <td class="px-6 py-4 text-blue-600 font-mono tracking-widest">${item.card_number}</td>
+                            <td class="px-6 py-4 text-center"><span class="bg-gray-100 text-gray-600 rounded-lg px-2 py-1 font-bold text-xs">Cuota ${item.installment_number}</span></td>
+                            <td class="px-6 py-4 text-right font-black text-success">${formatMoney(item.amount_collected)}</td>
+                        </tr>
+                    `;
+                });
+            }
+        }
+
+    } catch(err) {
+        console.error(err);
     }
 }
 

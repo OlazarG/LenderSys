@@ -1,8 +1,36 @@
 import pool from '../db/index.js';
 
-export const findAll = async () => {
-    const result = await pool.query('SELECT * FROM customers ORDER BY full_name');
-    return result.rows;
+export const findAll = async (search = '', limit = null, offset = null) => {
+    let query = 'SELECT * FROM customers';
+    let countQuery = 'SELECT COUNT(*) FROM customers';
+    const params = [];
+    
+    if (search) {
+        query += ' WHERE full_name ILIKE $1';
+        countQuery += ' WHERE full_name ILIKE $1';
+        params.push(`%${search}%`);
+    }
+
+    query += ' ORDER BY full_name';
+
+    if (limit !== null) {
+        params.push(limit);
+        query += ` LIMIT $${params.length}`;
+        if (offset !== null) {
+            params.push(offset);
+            query += ` OFFSET $${params.length}`;
+        }
+    }
+
+    const [dataResult, countResult] = await Promise.all([
+        pool.query(query, params),
+        pool.query(countQuery, search ? [`%${search}%`] : [])
+    ]);
+
+    return {
+        data: dataResult.rows,
+        total: parseInt(countResult.rows[0].count, 10)
+    };
 };
 
 export const findById = async (id) => {

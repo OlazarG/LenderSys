@@ -1,8 +1,46 @@
 import pool from '../db/index.js';
 
-export const findAll = async () => {
-    const result = await pool.query('SELECT * FROM loans');
-    return result.rows;
+export const findAll = async (search = '', limit = null, offset = null) => {
+    let query = `
+        SELECT loans.*, customers.full_name as client_name 
+        FROM loans 
+        JOIN customers ON loans.customer_id = customers.id
+    `;
+    let countQuery = `
+        SELECT COUNT(*) 
+        FROM loans 
+        JOIN customers ON loans.customer_id = customers.id
+    `;
+    const params = [];
+    let searchParams = [];
+    
+    if (search) {
+        query += ' WHERE customers.full_name ILIKE $1 OR CAST(loans.id AS TEXT) ILIKE $1';
+        countQuery += ' WHERE customers.full_name ILIKE $1 OR CAST(loans.id AS TEXT) ILIKE $1';
+        params.push(`%${search}%`);
+        searchParams.push(`%${search}%`);
+    }
+
+    query += ' ORDER BY loans.created_at DESC';
+
+    if (limit !== null) {
+        params.push(limit);
+        query += ` LIMIT $${params.length}`;
+        if (offset !== null) {
+            params.push(offset);
+            query += ` OFFSET $${params.length}`;
+        }
+    }
+
+    const [dataResult, countResult] = await Promise.all([
+        pool.query(query, params),
+        pool.query(countQuery, searchParams)
+    ]);
+
+    return {
+        data: dataResult.rows,
+        total: parseInt(countResult.rows[0].count, 10)
+    };
 };
 
 export const findById = async (client, id) => {
@@ -27,12 +65,20 @@ export const getActiveOrMoroso = async () => {
 };
 
 export const create = async (client, data) => {
-    const { customer_id, amount, interest_rate, frequency, total_installments } = data;
+    const { customer_id, amount, interest_rate, frequency, total_installments, card_number } = data;
     const loanRes = await client.query(
-        'INSERT INTO loans (customer_id, amount, interest_rate, frequency, total_installments) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-        [customer_id, amount, interest_rate, frequency, total_installments]
+        'INSERT INTO loans (customer_id, amount, interest_rate, frequency, total_installments, card_number) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+        [customer_id, amount, interest_rate, frequency, total_installments, card_number || null]
     );
     return loanRes.rows[0];
+};
+
+export const updateCard = async (id, card_number) => {
+    const result = await pool.query(
+        "UPDATE loans SET card_number = $1 WHERE id = $2 RETURNING *",
+        [card_number || null, id]
+    );
+    return result.rows[0];
 };
 
 export const updateStatus = async (client, id, status) => {

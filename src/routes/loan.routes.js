@@ -7,5 +7,6 @@ const router = express.Router();
 router.use(verifyToken);
 router.get('/', loanController.getAllLoans);
 router.post('/', loanController.createLoan);
+router.put('/:id/card', loanController.updateLoanCard);
 
 export default router;

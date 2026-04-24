@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS loans (
     frequency loan_frequency NOT NULL,
     total_installments INT NOT NULL,
     status loan_status DEFAULT 'ACTIVO'::loan_status,
+    card_number VARCHAR(100) DEFAULT NULL,
+    surplus_balance DECIMAL(12,2) DEFAULT 0.00,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -54,6 +56,10 @@ CREATE TABLE IF NOT EXISTS installments (
     original_amount DECIMAL(12,2) NOT NULL,
     carried_over_amount DECIMAL(12,2) DEFAULT 0.00,
     paid_amount DECIMAL(12,2) DEFAULT 0.00,
+    surplus_applied DECIMAL(12,2) DEFAULT 0.00,
+    overpaid_amount DECIMAL(12,2) DEFAULT 0.00,
+    direct_payment DECIMAL(12,2) DEFAULT 0.00,
+    payment_date DATE DEFAULT NULL,
     total_due DECIMAL(12,2) GENERATED ALWAYS AS (original_amount + carried_over_amount) STORED,
     status installment_status DEFAULT 'PENDIENTE'::installment_status
 );

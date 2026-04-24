@@ -4,8 +4,29 @@ import pool from '../db/index.js';
 
 export const getAllCustomers = async (req, res) => {
     try {
-        const customers = await customerRepository.findAll();
-        res.json(customers);
+        const limitQuery = req.query.limit;
+        const pageQuery = parseInt(req.query.page) || 1;
+        const search = req.query.search || '';
+
+        let limit = 20;
+        let offset = (pageQuery - 1) * limit;
+
+        if (limitQuery === 'all' || limitQuery === '0') {
+            limit = null;
+            offset = null;
+        } else if (limitQuery) {
+            limit = parseInt(limitQuery) || 20;
+            offset = (pageQuery - 1) * limit;
+        }
+
+        const result = await customerRepository.findAll(search, limit, offset);
+        
+        res.json({
+            data: result.data,
+            total: result.total,
+            page: pageQuery,
+            totalPages: limit ? Math.ceil(result.total / limit) : 1
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
